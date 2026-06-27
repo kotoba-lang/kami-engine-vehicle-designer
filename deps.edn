@@ -2,8 +2,12 @@
  ;; langgraph-clj brings langchain-clj transitively (both zero-/single-dep,
  ;; all .cljc → portable to JVM / SCI / ClojureScript / GraalVM). Same runtime
  ;; the robotaxi-actor rides on; a vehicle DESIGN is just another StateGraph.
- :deps {io.github.com-junkawasaki/langgraph-clj
-        {:local/root "../langgraph-clj"}}
+ :deps {io.github.com-junkawasaki/langgraph-clj  {:local/root "../langgraph-clj"}
+        ;; shared, purpose-split libraries (commonized out of this actor)
+        io.github.com-junkawasaki/datom-clj       {:local/root "../datom-clj"}
+        io.github.com-junkawasaki/vphysics-clj    {:local/root "../vphysics-clj"}
+        ;; aero-clj (+ its cae-solver-clj) — computes Cd for the design loop (#2)
+        io.github.com-junkawasaki/aero-clj        {:local/root "../aero-clj"}}
  :aliases
  {;; offline workspace dev — pin transitive langchain-clj to local checkout
   :dev {:override-deps

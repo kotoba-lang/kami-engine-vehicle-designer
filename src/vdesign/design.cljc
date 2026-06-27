@@ -27,7 +27,9 @@
             [vdesign.proposer :as proposer]
             [vdesign.physics :as physics]
             [vdesign.simverify :as simverify]
-            [vdesign.process :as process]))
+            [vdesign.process :as process]
+            [aero.case :as aero-case]
+            [aero.bridge :as aero]))
 
 (defn- glider-of [concept]
   (select-keys concept [:crr :cd :frontal-area :avg-speed :glider-mass
@@ -79,6 +81,21 @@
              :audit   [{:t :proposed :powertrain powertrain
                         :target-curb-kg (:target-curb-kg c)
                         :rationale (:rationale c)}]})))
+
+      ;; 2b. Aero — compute the REAL Cd (aero-clj reduced-order solver) and
+      ;;     override the proposer's fixed Cd prior, so the energy sizing in
+      ;;     :govern reflects this body's drag, not a class default (#2 wiring).
+      (g/add-node :aero
+        (fn [{:keys [concept]}]
+          (let [acase (aero-case/for-vehicle
+                       (select-keys concept [:class :powertrain :frontal-area]))
+                res   (aero/run acase (:cd concept))
+                cd'   (get-in res [:solve :Cd])]
+            {:concept (assoc concept :cd cd' :cd-prior (:cd concept))
+             :datoms  (:datoms res)
+             :audit   [{:t :aero :cd-prior (:cd concept) :cd cd'
+                        :range-mult (get-in res [:effect :range-mult])
+                        :datoms (:datom-count res)}]})))
 
       ;; 3. PhysicsGovernor — independent conservation-law censor.
       (g/add-node :govern
@@ -156,7 +173,8 @@
 
       (g/set-entry-point :require)
       (g/add-edge :require :propose)
-      (g/add-edge :propose :govern)
+      (g/add-edge :propose :aero)
+      (g/add-edge :aero    :govern)
       (g/add-edge :govern  :decide)
 
       ;; Closed designs get human sign-off first; rejected ones emit directly.

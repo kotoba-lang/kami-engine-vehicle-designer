@@ -14,21 +14,15 @@
 
   Units are SI internally (J, kg, m, W); kWh / L surface in the result
   maps for human-readable specs. Constants reflect ~2026 production
-  technology and are the single place to retune as cells/tanks improve."
-  (:require [clojure.string :as str]))
+  technology and are the single place to retune as cells/tanks improve.
 
-;; ───────────────────────────── constants ─────────────────────────────
+  SI constants and the road-load model are commonized in `vphysics-clj`
+  (shared with aero-clj); only the pack/tank/stack technology table is
+  powertrain-specific and lives here."
+  (:require [vphysics.core :as phys]))
 
-(def ^:const g 9.81)              ; m/s^2
-(def ^:const rho-air 1.225)       ; kg/m^3
-(def ^:const J-per-kWh 3.6e6)
-(def ^:const LHV-H2-J 1.20e8)     ; J/kg  (hydrogen lower heating value, 120 MJ/kg)
-
-;; Steady rolling+aero at one average speed undercounts a real drive cycle:
-;; it ignores the accel/transient energy that braking only partly returns,
-;; plus the high-speed aero share of mixed driving. This blends a single
-;; operating point up to representative (≈WLTP-class) cycle energy.
-(def ^:const cycle-factor 1.55)
+(def J-per-kWh phys/J-per-kWh)
+(def LHV-H2-J  phys/LHV-H2-J)
 
 ;; Pack / tank / stack technology — pack-LEVEL figures (not bare cell).
 (def tech
@@ -50,25 +44,9 @@
           :buffer-kWh   1.5       ; traction buffer battery
           :buffer-Wh-kg 150.0}})
 
-;; ─────────────────────── shared road-load model ──────────────────────
-
-(defn road-load-J-per-km
-  "Mechanical energy delivered at the wheels to cover 1 km at the design
-  operating mass, on a representative steady cycle. Rolling + aero only;
-  grade/transients average out over a cycle. `regen-credit` reflects the
-  share of that energy recovered under braking."
-  [{:keys [crr cd frontal-area avg-speed]} mass-kg regen-credit]
-  (let [v       avg-speed                       ; m/s
-        f-roll  (* crr mass-kg g)               ; N
-        f-aero  (* 0.5 rho-air cd frontal-area v v)
-        e-mech  (* (+ f-roll f-aero) 1000.0 cycle-factor)]   ; J over 1000 m, cycle-blended
-    (* e-mech (- 1.0 regen-credit))))
-
-(defn aux-J-per-km
-  "Electrical auxiliary energy (HVAC, compute, lights) per km — a function
-  of TIME, so it scales inversely with speed, not distance."
-  [p-aux-w avg-speed]
-  (* p-aux-w (/ 1000.0 avg-speed)))
+;; Road load + aux energy come from the shared vphysics-clj.
+(def road-load-J-per-km phys/road-load-J-per-km)
+(def aux-J-per-km        phys/aux-J-per-km)
 
 ;; ───────────────────────── BEV energy system ─────────────────────────
 
