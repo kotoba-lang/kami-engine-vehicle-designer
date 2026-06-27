@@ -13,7 +13,8 @@
   vocabulary (Articulation, Collider, multi-env batch, mass DR) but compute
   on this actor's own closed-form structural model — no NVIDIA code, same
   invariant the kami-engine Isaac-compat stack holds (ADR-0034)."
-  (:require [vdesign.datom :as d]))
+  (:require [vdesign.datom :as d]
+            [crash.solver :as crash]))
 
 (def ^:const g 9.81)
 (def ^:const a-crash (* 20.0 g))     ; 20 g frontal crash pulse
@@ -24,13 +25,15 @@
 ;; Per-class geometry priors (the cae/genesis scene the spec instantiates).
 (def geom
   {:city  {:floor-area 1.6 :floor-clear 0.12 :wheelbase 2.40 :front-frac 0.50
-           :struct-N-kg 240 :axle-N-kg 230}
+           :axle-N-kg 230 :crush-len 0.50 :rail-area 1300 :material :DP600}
    :sedan {:floor-area 2.4 :floor-clear 0.13 :wheelbase 2.90 :front-frac 0.50
-           :struct-N-kg 250 :axle-N-kg 230}
+           :axle-N-kg 230 :crush-len 0.60 :rail-area 1600 :material :DP600}
    :suv   {:floor-area 2.8 :floor-clear 0.15 :wheelbase 2.95 :front-frac 0.52
-           :struct-N-kg 260 :axle-N-kg 235}
+           :axle-N-kg 235 :crush-len 0.65 :rail-area 1900 :material :DP980}
    :truck {:floor-area 6.0 :floor-clear 0.20 :wheelbase 3.60 :front-frac 0.45
-           :struct-N-kg 300 :axle-N-kg 240}})
+           :axle-N-kg 240 :crush-len 0.90 :rail-area 4000 :material :boron-PHS}})
+
+(def ^:const impact-kmh 56)   ; frontal-crash test speed
 
 ;; ─────────────── reproducible domain randomization (seeded LCG) ───────────────
 
@@ -46,13 +49,17 @@
 
 ;; ───────────────────────────── checks ─────────────────────────────
 
-(defn- structural-sf
-  "Crash-load safety factor: the floor rails must carry the energy store's
-  inertial load under the crash pulse. allowable ∝ glider mass (structure)."
-  [gm store-mass glider-mass decel]
-  (let [load      (* store-mass decel)              ; N into the rails
-        allowable (* (:struct-N-kg gm) glider-mass)]
-    (/ allowable (max load 1.0))))
+(defn- crash-sf
+  "Frontal-crash structural safety factor, REAL-VALUED via crash-clj's
+  energy-balance crush model (:rom-crash) — the full-vehicle kinetic energy is
+  absorbed over the front crush length; rail stress vs material yield sets the
+  SF, the crush force sets the cabin deceleration. Replaces the old closed-form
+  store-inertial proxy. Returns {:sf :decel-g}."
+  [gm mass-kg rail-area-mm2 v-kmh]
+  (let [r (crash/solve {:mass-kg mass-kg :impact-kmh v-kmh
+                        :crush-len-m (:crush-len gm) :rail-area-mm2 rail-area-mm2
+                        :material (:material gm)})]
+    {:sf (:SF r) :decel-g (:decel-g r)}))
 
 (defn- clash-sf
   "Package clash: does the store actually FIT its placement, not just the
@@ -85,23 +92,25 @@
         glider    (get-in design [:mass-budget :glider-kg])
         gross     (+ curb-mass-kg (:gross-kg margins))   ; reconstruct GVWR
         avail-L   (+ store-v (:volume-L margins))
-        ;; nominal checks
-        nom {:structural (structural-sf gm store-m glider a-crash)
+        ;; nominal checks — structural is now crash-clj's real crush result
+        crash0    (crash-sf gm curb-mass-kg (:rail-area gm) impact-kmh)
+        nom {:structural (:sf crash0)
              :clash      (clash-sf gm powertrain store-v avail-L)
              :axle       (axle-sf gm curb-mass-kg gross)}
-        ;; Isaac-style randomized batch: vary store mass, glider strength,
-        ;; crash decel per env; the structural path is the worst-case driver.
+        ;; Isaac-style randomized batch: vary crash mass, rail strength and
+        ;; impact speed per env; re-run the crush model → worst-case SF.
         rs        (partition 3 (lcg-seq (+ 1009 (hash [class powertrain])) (* 3 n-envs)))
         dr-sfs    (mapv (fn [[rm rg rd]]
-                          (structural-sf gm (jitter rm store-m 0.08)
-                                         (jitter rg glider 0.06)
-                                         (jitter rd a-crash 0.10)))
+                          (:sf (crash-sf gm (jitter rm curb-mass-kg 0.08)
+                                         (jitter rg (:rail-area gm) 0.06)
+                                         (jitter rd impact-kmh 0.10))))
                         rs)
         dr-min    (reduce min dr-sfs)
         checks    [{:check :structural :sf (:structural nom)
                     :pass? (>= (:structural nom) sf-floor)
-                    :detail (str "20 g crash: floor rails carry "
-                                 (Math/round (double store-m)) " kg store")}
+                    :detail (str impact-kmh " km/h frontal crash (crash-clj): "
+                                 (Math/round (:decel-g crash0)) " g decel, rail "
+                                 (name (:material gm)) " vs yield")}
                    {:check :package-clash :sf (:clash nom)
                     :pass? (>= (:clash nom) 1.0)
                     :detail (case powertrain

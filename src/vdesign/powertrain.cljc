@@ -84,9 +84,12 @@
   H2(LHV) → electric (stack) → wheel (buffer/motor). Returns the parallel
   shape to `size-bev`, with H2 mass + tank/stack/buffer breakdown."
   [glider concept mass-kg]
-  (let [{:keys [b2w-eff fc-elec-eff regen-credit grav-frac h2-kg-L tank-overhead
+  (let [{:keys [b2w-eff regen-credit grav-frac h2-kg-L tank-overhead
                 fc-kW-kg motor-kW-kg buffer-kWh buffer-Wh-kg]}
         (:fcev tech)
+        ;; stack efficiency: a computed echem (:rom-fc) value injected by the
+        ;; design graph overrides the tech default (#3 wiring).
+        fc-elec-eff (or (:fc-elec-eff concept) (get-in tech [:fcev :fc-elec-eff]))
         {:keys [range-km]} concept
         e-mech   (road-load-J-per-km glider mass-kg regen-credit)
         e-aux    (aux-J-per-km (:p-aux-w concept) (:avg-speed glider))

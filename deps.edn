@@ -6,8 +6,12 @@
         ;; shared, purpose-split libraries (commonized out of this actor)
         io.github.com-junkawasaki/datom-clj       {:local/root "../datom-clj"}
         io.github.com-junkawasaki/vphysics-clj    {:local/root "../vphysics-clj"}
-        ;; aero-clj (+ its cae-solver-clj) — computes Cd for the design loop (#2)
-        io.github.com-junkawasaki/aero-clj        {:local/root "../aero-clj"}}
+        ;; CAE seeds — computed values injected into the design loop (#2/#3):
+        ;;   aero  → Cd (range), crash → structural SF (simverify),
+        ;;   echem → FCEV stack efficiency (H2 consumption)
+        io.github.com-junkawasaki/aero-clj        {:local/root "../aero-clj"}
+        io.github.com-junkawasaki/crash-clj       {:local/root "../crash-clj"}
+        io.github.com-junkawasaki/echem-clj       {:local/root "../echem-clj"}}
  :aliases
  {;; offline workspace dev — pin transitive langchain-clj to local checkout
   :dev {:override-deps

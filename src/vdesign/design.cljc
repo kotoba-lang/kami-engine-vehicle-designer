@@ -29,7 +29,8 @@
             [vdesign.simverify :as simverify]
             [vdesign.process :as process]
             [aero.case :as aero-case]
-            [aero.bridge :as aero]))
+            [aero.bridge :as aero]
+            [echem.solver :as echem]))
 
 (defn- glider-of [concept]
   (select-keys concept [:crr :cd :frontal-area :avg-speed :glider-mass
@@ -96,6 +97,21 @@
              :audit   [{:t :aero :cd-prior (:cd concept) :cd cd'
                         :range-mult (get-in res [:effect :range-mult])
                         :datoms (:datom-count res)}]})))
+
+      ;; 2c. CAE probe — powertrain-specific physics injected into the concept
+      ;;     before sizing. FCEV: echem (:rom-fc) computes the real stack
+      ;;     efficiency from a polarization curve, overriding the tech default
+      ;;     so H2 consumption reflects it (#3 wiring).
+      (g/add-node :cae-probe
+        (fn [{:keys [concept]}]
+          (if (= :fcev (:powertrain concept))
+            (let [r (echem/run {:case/id (str "veh-" (name (:class concept)) "-fcev/fc")})]
+              {:concept (assoc concept :fc-elec-eff (:eff-LHV r))
+               :datoms  (:datoms r)
+               :audit   [{:t :echem :eff-LHV (:eff-LHV r)
+                          :v-cell (:v-cell r) :stack-kW (:stack-kW r)
+                          :datoms (:datom-count r)}]})
+            {})))
 
       ;; 3. PhysicsGovernor — independent conservation-law censor.
       (g/add-node :govern
@@ -173,8 +189,9 @@
 
       (g/set-entry-point :require)
       (g/add-edge :require :propose)
-      (g/add-edge :propose :aero)
-      (g/add-edge :aero    :govern)
+      (g/add-edge :propose   :aero)
+      (g/add-edge :aero      :cae-probe)
+      (g/add-edge :cae-probe :govern)
       (g/add-edge :govern  :decide)
 
       ;; Closed designs get human sign-off first; rejected ones emit directly.
