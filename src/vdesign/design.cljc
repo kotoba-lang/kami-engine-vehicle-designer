@@ -1,0 +1,180 @@
+(ns vdesign.design
+  "VehicleDesignActor — one clean-sheet vehicle design = one supervised
+  actor, expressed as a langgraph-clj StateGraph. The DesignProposer is
+  sealed into a single node; its concept is ALWAYS routed through the
+  PhysicsGovernor before anything is emitted as a spec.
+
+  One graph run = one design pass:
+
+    require → propose → govern → decide ─┬─ (closes) ──▶ design-review ──▶ emit
+                                         │              [interrupt-before]
+                                         │               engineer signs off,
+                                         │               resume ─▶ emit
+                                         └─ (infeasible) ──────────────▶ emit
+                                                          (rejected spec
+                                                           + physics reasons)
+
+  Mirrors robotaxi exactly: the proposer never ships a design the
+  PhysicsGovernor hasn't closed; an infeasible concept falls back to a
+  REJECTED spec (the design-side MRC) carrying the conservation-law
+  violations as evidence; and `interrupt-before #{:design-review}` is a
+  real human-in-the-loop sign-off, like robotaxi's teleop handoff.
+
+  Run the SAME graph with {:powertrain :bev} and {:powertrain :fcev} to
+  clean-sheet both architectures from one requirement set and compare."
+  (:require [langgraph.graph :as g]
+            [langgraph.checkpoint :as cp]
+            [vdesign.proposer :as proposer]
+            [vdesign.physics :as physics]
+            [vdesign.simverify :as simverify]
+            [vdesign.process :as process]))
+
+(defn- glider-of [concept]
+  (select-keys concept [:crr :cd :frontal-area :avg-speed :glider-mass
+                        :gross-limit :p-aux-w]))
+
+(defn- spec
+  "Assemble the final, physics-closed vehicle spec + a coarse BOM-level
+  mass/energy breakdown — the deliverable of a passed design pass."
+  [concept verdict]
+  (let [{:keys [store curb-mass-kg margins]} verdict]
+    {:status        :released
+     :class         (:class concept)
+     :powertrain    (:powertrain concept)
+     :range-km      (:range-km concept)
+     :curb-mass-kg  (Math/round curb-mass-kg)
+     :p-peak-kW     (:p-peak-kW store)
+     :energy        (dissoc store :propulsion-mass-kg)
+     :mass-budget   {:glider-kg  (:glider-mass concept)
+                     :energy-store-kg (Math/round (double (:store-mass-kg store)))
+                     :propulsion-kg   (Math/round (double (:propulsion-mass-kg store)))}
+     :margins       margins}))
+
+(defn build
+  "Compiles a VehicleDesignActor graph.
+  opts: {:checkpointer cp}  (defaults: mem checkpointer)."
+  [& [{:keys [checkpointer]
+       :or   {checkpointer (cp/mem-checkpointer)}}]]
+  (-> (g/state-graph
+       {:channels
+        {:requirements {:default nil}
+         :powertrain   {:default nil}   ; :bev | :fcev — the only branch
+         :concept      {:default nil}   ; DesignProposer output (untrusted)
+         :verdict      {:default nil}   ; PhysicsGovernor closure result
+         :design       {:default nil}   ; released spec OR rejected spec
+         :review       {:default nil}   ; engineer sign-off (set on resume)
+         :verification {:default nil}   ; (a) genesis/cae-compat sim verdict
+         :process      {:default nil}   ; (b) BOM → CAM → 4D assembly order
+         :datoms       {:reducer into :default []}  ; kotoba Datom log
+         :audit        {:reducer into :default []}}})
+
+      ;; 1. Requirements intake (passthrough; arrives via input).
+      (g/add-node :require (fn [s] s))
+
+      ;; 2. DesignProposer — the contained concept generator (untrusted).
+      (g/add-node :propose
+        (fn [{:keys [requirements powertrain]}]
+          (let [c (proposer/propose requirements powertrain)]
+            {:concept c
+             :audit   [{:t :proposed :powertrain powertrain
+                        :target-curb-kg (:target-curb-kg c)
+                        :rationale (:rationale c)}]})))
+
+      ;; 3. PhysicsGovernor — independent conservation-law censor.
+      (g/add-node :govern
+        (fn [{:keys [concept powertrain]}]
+          (let [v (physics/check powertrain (glider-of concept) concept)]
+            {:verdict v
+             :audit   [{:t :physics-verdict
+                        :closes? (:closes? v)
+                        :curb-mass-kg (Math/round (:curb-mass-kg v))
+                        :iterations (:iterations v)
+                        :spiral (:history v)
+                        :violations (mapv :gate (:violations v))}]})))
+
+      ;; 4. Decide: closed → carry a released spec; else → rejected spec
+      ;;    (the design-side MRC) with the physics violations as evidence.
+      (g/add-node :decide
+        (fn [{:keys [concept verdict]}]
+          (if (:closes? verdict)
+            {:design (spec concept verdict)}
+            {:design {:status :rejected
+                      :class (:class concept)
+                      :powertrain (:powertrain concept)
+                      :range-km (:range-km concept)
+                      :curb-mass-kg (Math/round (:curb-mass-kg verdict))
+                      :violations (:violations verdict)}
+             :audit  [{:t :physics-reject
+                       :violations (mapv :gate (:violations verdict))}]})))
+
+      ;; 5a. Human design review — paused on by interrupt-before (an
+      ;;     engineer signs off the closed spec before release).
+      (g/add-node :design-review
+        (fn [{:keys [design]}]
+          {:review {:status :approved   ; set by the reviewer on resume
+                    :curb-mass-kg (:curb-mass-kg design)}
+           :audit  [{:t :design-review :released (:status design)}]}))
+
+      ;; 6. (a) SimGovernor — structural + collision verification on the
+      ;;    Isaac/genesis-compat surface, hardened by per-env DR. A structural
+      ;;    failure downgrades the (closed) design to rejected — a second MRC.
+      (g/add-node :verify
+        (fn [{:keys [design]}]
+          (let [v (simverify/check design)]
+            (cond-> {:verification v
+                     :datoms (:datoms v)
+                     :audit  [{:t :sim-verify :passed? (:passed? v)
+                               :min-sf (Math/round (* 100.0 (:min-sf v)))
+                               :solver "kami-genesis(isaacsim-compat)"
+                               :datoms (:datom-count v)}]}
+              (not (:passed? v))
+              (assoc :design (assoc design :status :rejected
+                                    :violations (->> (:checks v)
+                                                     (remove :pass?)
+                                                     (mapv #(hash-map :gate (:check %)
+                                                                      :detail (:detail %))))))))))
+
+      ;; 7. (b) ProcessPlanner — BOM → CAM (G-code) → 4D assembly order,
+      ;;    all written to the kotoba Datom log. Runs only for a design that
+      ;;    both closed (physics) and survived (sim).
+      (g/add-node :process
+        (fn [{:keys [design]}]
+          (let [p (process/plan design)]
+            {:process p
+             :datoms  (:datoms p)
+             :audit   [{:t :process-plan
+                        :bom-lines (count (:bom-lines p))
+                        :cam-jobs (count (:cam p))
+                        :assembly-steps (count (:assembly p))
+                        :line-takt-s (:takt-s p)
+                        :datoms (:datom-count p)}]})))
+
+      ;; 8. Emit the (released or rejected) design.
+      (g/add-node :emit
+        (fn [{:keys [design]}]
+          {:audit [{:t :emit :status (:status design)}]}))
+
+      (g/set-entry-point :require)
+      (g/add-edge :require :propose)
+      (g/add-edge :propose :govern)
+      (g/add-edge :govern  :decide)
+
+      ;; Closed designs get human sign-off first; rejected ones emit directly.
+      (g/add-conditional-edges :decide
+        (fn [{:keys [design]}]
+          (if (= :released (:status design))
+            :design-review
+            :emit)))
+      ;; Released path: review → (a) verify → decide whether to plan process.
+      (g/add-edge :design-review :verify)
+      ;; A sim-rejected design skips manufacturing and emits; a survivor is
+      ;; planned (b) then emitted.
+      (g/add-conditional-edges :verify
+        (fn [{:keys [verification]}]
+          (if (:passed? verification) :process :emit)))
+      (g/add-edge :process :emit)
+      (g/set-finish-point :emit)
+
+      (g/compile-graph
+       {:checkpointer     checkpointer
+        :interrupt-before #{:design-review}})))
