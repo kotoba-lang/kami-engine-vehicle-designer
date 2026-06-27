@@ -66,7 +66,8 @@
         nominal  (/ usable dod)
         mass     (/ (* nominal 1000.0) pack-Wh-kg)
         volume   (/ nominal pack-kWh-L)
-        motor    (/ (:p-peak-kw concept) motor-kW-kg)]
+        motor    (or (:motor-mass-kg concept)            ; computed by motor-clj (#3)
+                     (/ (:p-peak-kw concept) motor-kW-kg))]
     {:kind :bev
      :consumption-kWh-km cons-kWh
      :usable-kWh usable
@@ -101,7 +102,8 @@
         tank-vol (* (/ h2-kg h2-kg-L) tank-overhead)   ; external L
         stack    (/ (:p-peak-kw concept) fc-kW-kg)
         buffer   (/ (* buffer-kWh 1000.0) buffer-Wh-kg)
-        motor    (/ (:p-peak-kw concept) motor-kW-kg)]
+        motor    (or (:motor-mass-kg concept)            ; computed by motor-clj (#3)
+                     (/ (:p-peak-kw concept) motor-kW-kg))]
     {:kind :fcev
      :h2-kg h2-kg
      :consumption-kWh-km (/ h2-J J-per-kWh)            ; H2 LHV basis

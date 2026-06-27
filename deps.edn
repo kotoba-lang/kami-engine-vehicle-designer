@@ -11,7 +11,8 @@
         ;;   echem → FCEV stack efficiency (H2 consumption)
         io.github.com-junkawasaki/aero-clj        {:local/root "../aero-clj"}
         io.github.com-junkawasaki/crash-clj       {:local/root "../crash-clj"}
-        io.github.com-junkawasaki/echem-clj       {:local/root "../echem-clj"}}
+        io.github.com-junkawasaki/echem-clj       {:local/root "../echem-clj"}
+        io.github.com-junkawasaki/motor-clj       {:local/root "../motor-clj"}}
  :aliases
  {;; offline workspace dev — pin transitive langchain-clj to local checkout
   :dev {:override-deps

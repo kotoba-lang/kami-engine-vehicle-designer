@@ -30,7 +30,8 @@
             [vdesign.process :as process]
             [aero.case :as aero-case]
             [aero.bridge :as aero]
-            [echem.solver :as echem]))
+            [echem.solver :as echem]
+            [motor.solver :as motor]))
 
 (defn- glider-of [concept]
   (select-keys concept [:crr :cd :frontal-area :avg-speed :glider-mass
@@ -98,20 +99,25 @@
                         :range-mult (get-in res [:effect :range-mult])
                         :datoms (:datom-count res)}]})))
 
-      ;; 2c. CAE probe — powertrain-specific physics injected into the concept
-      ;;     before sizing. FCEV: echem (:rom-fc) computes the real stack
-      ;;     efficiency from a polarization curve, overriding the tech default
-      ;;     so H2 consumption reflects it (#3 wiring).
+      ;; 2c. CAE probe — physics injected into the concept before sizing.
+      ;;     motor (:rom-motor) sizes the traction motor mass for the peak-kW
+      ;;     target (both powertrains); FCEV additionally gets echem (:rom-fc)
+      ;;     stack efficiency from a polarization curve (#3 wiring).
       (g/add-node :cae-probe
         (fn [{:keys [concept]}]
-          (if (= :fcev (:powertrain concept))
-            (let [r (echem/run {:case/id (str "veh-" (name (:class concept)) "-fcev/fc")})]
-              {:concept (assoc concept :fc-elec-eff (:eff-LHV r))
-               :datoms  (:datoms r)
-               :audit   [{:t :echem :eff-LHV (:eff-LHV r)
-                          :v-cell (:v-cell r) :stack-kW (:stack-kW r)
-                          :datoms (:datom-count r)}]})
-            {})))
+          (let [m  (motor/size-for-power {:p-peak-kW (:p-peak-kw concept)})
+                c1 (assoc concept :motor-mass-kg (:mass-kg m))
+                a0 [{:t :motor :kW (:p-peak-kw concept)
+                     :mass-kg (Math/round (double (:mass-kg m)))
+                     :Nm-per-kg (:Nm-per-kg m) :eff (:eff-peak m)}]]
+            (if (= :fcev (:powertrain concept))
+              (let [r (echem/run {:case/id (str "veh-" (name (:class concept)) "-fcev/fc")})]
+                {:concept (assoc c1 :fc-elec-eff (:eff-LHV r))
+                 :datoms  (:datoms r)
+                 :audit   (conj a0 {:t :echem :eff-LHV (:eff-LHV r)
+                                    :v-cell (:v-cell r) :stack-kW (:stack-kW r)
+                                    :datoms (:datom-count r)})})
+              {:concept c1 :audit a0}))))
 
       ;; 3. PhysicsGovernor — independent conservation-law censor.
       (g/add-node :govern
