@@ -145,17 +145,19 @@
           segments (ktoolpath/generate-toolpath job)]
       {:dims dims
        :triangle-count (quot (count (:indices mesh)) 3)
-       :gcode (kgcode/generate-gcode segments)})))
+       :gcode (kgcode/generate-gcode segments)
+       :dxf (vcad/envelope-dxf dims)})))
 
 ;; ──────────────────────── artifact classification ────────────────────────
 
 (defn- artifact-manifest
   "Classify every file this process plan produces through kotoba-lang/cad's
-  artifact registry (`kotoba.cad.core/classify-artifact`) — the STL
-  envelope export and one G-code/NC file per CAM job."
+  artifact registry (`kotoba.cad.core/classify-artifact`) — the STL and
+  DXF envelope exports and one G-code/NC file per CAM job."
   [vid cam-lines has-envelope?]
   (cond-> (mapv (fn [j] (cad-core/classify-artifact (str vid "/" (:part j) ".nc"))) cam-lines)
-    has-envelope? (conj (cad-core/classify-artifact (str vid "-envelope.stl")))))
+    has-envelope? (conj (cad-core/classify-artifact (str vid "-envelope.stl"))
+                        (cad-core/classify-artifact (str vid "-envelope.dxf")))))
 
 ;; ─────────────────────── 4D assembly order ───────────────────────
 
@@ -192,12 +194,20 @@
 (defn plan
   "Full process plan for a released `design`. Returns
   {:bom [..] :cam [..] :assembly [..] :envelope-buck .. :artifacts [..]
-  :takt-s n :tx .. :datoms ..}. `:envelope-buck` (a design-review CAM job
-  machined from the vehicle's BREP packaging envelope) and `:artifacts`
-  (kotoba-lang/cad artifact classifications) are nil/empty when `design`
-  carries no `:geometry` (older callers, or a design assembled before
-  vdesign.design/geometry-of existed)."
-  [design]
+  :maturity .. :takt-s n :tx .. :datoms ..}. `:envelope-buck` (a
+  design-review CAM job machined from the vehicle's BREP packaging
+  envelope) and `:artifacts` (kotoba-lang/cad artifact classifications)
+  are nil/empty when `design` carries no `:geometry` (older callers, or a
+  design assembled before vdesign.design/geometry-of existed).
+
+  `verification` (vdesign.simverify/check's result) and `review` (the
+  StateGraph's human design-review sign-off, present only once its
+  interrupt has been resumed) are optional — when supplied, `:maturity`
+  is a real kotoba-lang/cad score/coverage/co-sientist-review computed
+  from this plan's own artifacts and the pipeline's actual passed gates
+  (see vdesign.cad/maturity); when omitted, `:maturity` is nil rather
+  than guessed."
+  [design & [{:keys [verification review]}]]
   (let [pt      (:powertrain design)
         lines   (bom design)
         cam     (cam-jobs pt lines)
@@ -206,6 +216,9 @@
         vid     (str "veh-" (name (:class design)) "-" (name pt))
         buck    (envelope-buck (:geometry design))
         artifacts (artifact-manifest vid cam (some? buck))
+        maturity (when (seq artifacts)
+                   (vcad/maturity {:design design :verification verification
+                                   :artifacts artifacts :review review}))
         bom-ents (map-indexed
                   (fn [i l] (d/entity :BomLine (str vid "/p" i)
                                       {:vehicle vid :part (:part l) :qty (:qty l)
@@ -231,12 +244,21 @@
                                 :widthMm  (Math/round (get-in buck [:dims :width-mm]))
                                 :heightMm (Math/round (get-in buck [:dims :height-mm]))
                                 :triangleCount (:triangle-count buck)})])
-        ledger   (d/log (concat bom-ents cam-ents asm-ents buck-ents))]
+        maturity-ents (when maturity
+                        [(d/entity :CadMaturity (str vid "/maturity")
+                                   {:vehicle vid
+                                    :stage (:stage maturity)
+                                    :approvals (count (:approvals maturity))
+                                    :scoreOverall (get-in maturity [:score :score/overall])
+                                    :coverageScore (get-in maturity [:coverage :coverage/score])
+                                    :mrl (name (get-in maturity [:review :review/maturity]))})])
+        ledger   (d/log (concat bom-ents cam-ents asm-ents buck-ents maturity-ents))]
     {:bom-lines lines
      :cam cam
      :assembly order
      :envelope-buck buck
      :artifacts artifacts
+     :maturity maturity
      :takt-s takt
      :tx (:tx ledger)
      :datoms (:datoms ledger)
