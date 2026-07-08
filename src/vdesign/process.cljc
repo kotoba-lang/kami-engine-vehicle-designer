@@ -6,12 +6,23 @@
   datoms, so the manufacturing process is queryable facts — the literal
   '組み立て工程まで全てデータ化' answer for this vehicle.
 
-  CAM mirrors kami-cam's types (ToolType EndMill/Drill/FaceMill, StockShape
-  Block/Cylinder, MachineType Mill3Axis, G00/G01 segments). The assembly
-  order mirrors giemon-factory's staged reveal — here the BEV and FCEV
-  diverge exactly where their energy systems do (pack-skateboard vs
-  H2-tank + leak/fill stations)."
+  CAM runs on the real `kotoba-lang/cnc` (`kotoba.cam.*`) engine — stock,
+  tool library, toolpath generation (zigzag pocket + peck drill) and
+  G-code post-processing — not a hand-rolled string template. The
+  packaging-envelope BREP from `vdesign.cad` also gets its own CAM job
+  (a design-review 'buck'), and every generated file is classified
+  through `kotoba-lang/cad`'s artifact registry. The assembly order
+  mirrors giemon-factory's staged reveal — here the BEV and FCEV diverge
+  exactly where their energy systems do (pack-skateboard vs H2-tank +
+  leak/fill stations)."
   (:require [vdesign.datom :as d]
+            [vdesign.cad :as vcad]
+            [kotoba.cad.core :as cad-core]
+            [kotoba.cam.stock :as kstock]
+            [kotoba.cam.tool :as ktool]
+            [kotoba.cam.toolpath :as ktoolpath]
+            [kotoba.cam.gcode :as kgcode]
+            [kotoba.cam.vec3 :as kvec3]
             [clojure.string :as str]))
 
 (def ^:const module-kWh 5.0)    ; battery module granularity
@@ -50,25 +61,38 @@
 
 ;; ───────────────────────────── CAM ─────────────────────────────
 
+(defn- kcam-tool-type [type-str]
+  (case type-str "FaceMill" :face-mill "Drill" :drill :end-mill))
+
+(defn- kcam-material [material-str]
+  (case material-str "HSS" :hss "Titanium" :titanium-ti6al4v :carbide))
+
 (defn- gcode
-  "Minimal but real G-code for one milled part (kami-cam PostProcessor shape):
-  metric/absolute, tool change, rapid to clearance, profile + drill, end."
-  [job]
-  (let [{:keys [part tool feed-mm-min holes]} job]
-    (str/join "\n"
-      (concat
-       [(str "( " part " — KAMI-CAM Mill3Axis )")
-        "G21 G90 G94"                       ; mm, absolute, feed/min
-        (str "T" (:n tool) " M06  ( " (:type tool) " " (:material tool) " )")
-        "M03 S9000"
-        "G00 Z5.0"
-        (str "G00 X0 Y0")
-        (str "G01 Z-2.0 F" feed-mm-min)     ; plunge
-        (str "G01 X120 Y0 F" feed-mm-min)   ; profile pass (representative)
-        "G01 X120 Y80" "G01 X0 Y80" "G01 X0 Y0"]
-       (mapcat (fn [i] [(str "G00 X" (* 20 (inc i)) " Y40")
-                        "G01 Z-8.0 F300" "G00 Z5.0"]) (range holes))
-       ["G00 Z25.0" "M05" "M30"]))))
+  "Real G-code for one milled part, via kotoba-lang/cnc: a tool library of
+  one tool, a block stock sized to the estimated toolpath extent, a
+  :pocket profile pass + :drill peck cycle for the part's holes, then
+  toolpath generation + G-code post-processing (kotoba.cam.gcode)."
+  [{:keys [tool feed-mm-min holes len-mm]}]
+  (let [tool-map {:id (:n tool) :name (str (:type tool) " " (:material tool))
+                  :tool-type (kcam-tool-type (:type tool))
+                  :diameter 10.0 :flute-length 30.0 :overall-length 60.0
+                  :flute-count 4 :corner-radius 0.0
+                  :material (kcam-material (:material tool)) :coating "TiAlN"}
+        [tool-lib _] (ktool/add (ktool/empty-library) tool-map)
+        stock    (kstock/stock (kstock/block (max 140.0 (* 0.5 len-mm)) 100.0 20.0)
+                                (kstock/aluminum-6061))
+        hole-pts (mapv (fn [i] (kvec3/v3 (* 20 (inc i)) 40.0 0.0)) (range holes))
+        job      (-> (ktoolpath/new-job stock tool-lib)
+                     (ktoolpath/add-operation
+                      {:op :pocket :tool-id (:n tool) :depth 2.0 :stepover 0.0
+                       :strategy :zigzag :feed-rate (double feed-mm-min)
+                       :pocket-min (kvec3/v3 0.0 0.0 0.0)
+                       :pocket-max (kvec3/v3 120.0 80.0 0.0)})
+                     (ktoolpath/add-operation
+                      {:op :drill :tool-id (:n tool) :depth 8.0 :peck-depth 3.0
+                       :feed-rate 300.0 :holes hole-pts}))
+        segments (ktoolpath/generate-toolpath job)]
+    (kgcode/generate-gcode segments)))
 
 (defn- cam-jobs
   "CAM jobs for the make-by-machining parts in the BOM."
@@ -88,10 +112,50 @@
                   len-mm (+ 400 (* holes 30))                   ; toolpath length est.
                   job    {:part part :qty qty :tool tool :holes holes
                           :feed-mm-min feed :machine "Mill3Axis"
-                          :stock "Block(AlSi10Mg)"
+                          :stock "Block(AlSi10Mg)" :len-mm len-mm
                           :cycle-s (Math/round (* 60.0 (/ len-mm feed)))}]
               (assoc job :gcode (gcode job))))
           machined)))
+
+;; ─────────────────────── packaging-envelope buck ───────────────────────
+
+(defn- envelope-buck
+  "A design-review 'buck' CAM job machined from the vehicle's packaging
+  envelope (vdesign.cad's BREP box, tessellated to a mesh and fed
+  straight into kotoba.cam.stock/from-mesh) — a single rough :pocket
+  clearing pass, not a production part. Returns nil if `geometry` is
+  missing (rejected designs never reach process/plan)."
+  [geometry]
+  (when geometry
+    (let [solid (vcad/envelope-solid geometry)
+          mesh  (vcad/envelope-mesh solid)
+          stock (kstock/stock (kstock/from-mesh (:positions mesh) (:indices mesh))
+                               (kstock/aluminum-6061))
+          tool-map {:id 1 :name "Rough EndMill" :tool-type :end-mill
+                    :diameter 25.0 :flute-length 50.0 :overall-length 100.0
+                    :flute-count 3 :corner-radius 0.0 :material :carbide :coating nil}
+          [tool-lib _] (ktool/add (ktool/empty-library) tool-map)
+          dims  (:dims solid)
+          job   (-> (ktoolpath/new-job stock tool-lib)
+                    (ktoolpath/add-operation
+                     {:op :pocket :tool-id 1 :depth (min 10.0 (:height-mm dims))
+                      :stepover 0.0 :strategy :zigzag :feed-rate 800.0
+                      :pocket-min (kvec3/v3 0.0 0.0 0.0)
+                      :pocket-max (kvec3/v3 (:length-mm dims) (:width-mm dims) 0.0)}))
+          segments (ktoolpath/generate-toolpath job)]
+      {:dims dims
+       :triangle-count (quot (count (:indices mesh)) 3)
+       :gcode (kgcode/generate-gcode segments)})))
+
+;; ──────────────────────── artifact classification ────────────────────────
+
+(defn- artifact-manifest
+  "Classify every file this process plan produces through kotoba-lang/cad's
+  artifact registry (`kotoba.cad.core/classify-artifact`) — the STL
+  envelope export and one G-code/NC file per CAM job."
+  [vid cam-lines has-envelope?]
+  (cond-> (mapv (fn [j] (cad-core/classify-artifact (str vid "/" (:part j) ".nc"))) cam-lines)
+    has-envelope? (conj (cad-core/classify-artifact (str vid "-envelope.stl")))))
 
 ;; ─────────────────────── 4D assembly order ───────────────────────
 
@@ -127,14 +191,21 @@
 
 (defn plan
   "Full process plan for a released `design`. Returns
-  {:bom [..] :cam [..] :assembly [..] :takt-s n :tx .. :datoms ..}."
+  {:bom [..] :cam [..] :assembly [..] :envelope-buck .. :artifacts [..]
+  :takt-s n :tx .. :datoms ..}. `:envelope-buck` (a design-review CAM job
+  machined from the vehicle's BREP packaging envelope) and `:artifacts`
+  (kotoba-lang/cad artifact classifications) are nil/empty when `design`
+  carries no `:geometry` (older callers, or a design assembled before
+  vdesign.design/geometry-of existed)."
   [design]
-  (let [pt    (:powertrain design)
-        lines (bom design)
-        cam   (cam-jobs pt lines)
-        order (assembly-order pt)
-        takt  (apply max (map :takt-s order))
-        vid   (str "veh-" (name (:class design)) "-" (name pt))
+  (let [pt      (:powertrain design)
+        lines   (bom design)
+        cam     (cam-jobs pt lines)
+        order   (assembly-order pt)
+        takt    (apply max (map :takt-s order))
+        vid     (str "veh-" (name (:class design)) "-" (name pt))
+        buck    (envelope-buck (:geometry design))
+        artifacts (artifact-manifest vid cam (some? buck))
         bom-ents (map-indexed
                   (fn [i l] (d/entity :BomLine (str vid "/p" i)
                                       {:vehicle vid :part (:part l) :qty (:qty l)
@@ -153,10 +224,19 @@
                                         {:vehicle vid :seq (:seq s) :step (:step s)
                                          :station (:station s) :taktS (:takt-s s)}))
                       order)
-        ledger   (d/log (concat bom-ents cam-ents asm-ents))]
+        buck-ents (when buck
+                    [(d/entity :EnvelopeBuck (str vid "/envelope")
+                               {:vehicle vid
+                                :lengthMm (Math/round (get-in buck [:dims :length-mm]))
+                                :widthMm  (Math/round (get-in buck [:dims :width-mm]))
+                                :heightMm (Math/round (get-in buck [:dims :height-mm]))
+                                :triangleCount (:triangle-count buck)})])
+        ledger   (d/log (concat bom-ents cam-ents asm-ents buck-ents))]
     {:bom-lines lines
      :cam cam
      :assembly order
+     :envelope-buck buck
+     :artifacts artifacts
      :takt-s takt
      :tx (:tx ledger)
      :datoms (:datoms ledger)
