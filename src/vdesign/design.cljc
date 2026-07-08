@@ -33,6 +33,19 @@
             [echem.solver :as echem]
             [motor.solver :as motor]))
 
+(defn geometry-of
+  "Package-envelope geometry for `concept`'s class — wheelbase and floor
+  area come from simverify's per-class geom priors (previously internal to
+  the crash/clash checks only); frontal area is the concept's own aero
+  descriptor. This is a coarse envelope, not a styled body — it exists so
+  a released spec carries SOME geometry for a CAD/CAM bridge to consume,
+  where before it carried none (see `vdesign.cad`)."
+  [concept]
+  (let [gm (get simverify/geom (:class concept) (:sedan simverify/geom))]
+    {:wheelbase-m     (:wheelbase gm)
+     :floor-area-m2   (:floor-area gm)
+     :frontal-area-m2 (:frontal-area concept)}))
+
 (defn- glider-of [concept]
   (select-keys concept [:crr :cd :frontal-area :avg-speed :glider-mass
                         :gross-limit :p-aux-w]))
@@ -52,7 +65,8 @@
      :mass-budget   {:glider-kg  (:glider-mass concept)
                      :energy-store-kg (Math/round (double (:store-mass-kg store)))
                      :propulsion-kg   (Math/round (double (:propulsion-mass-kg store)))}
-     :margins       margins}))
+     :margins       margins
+     :geometry      (geometry-of concept)}))
 
 (defn build
   "Compiles a VehicleDesignActor graph.

@@ -19,7 +19,17 @@
         io.github.kotoba-lang/kami-engine-echem       {:git/url "https://github.com/kotoba-lang/kami-engine-echem.git"
                                            :sha "2a6b330a876515c8625bac70edd44a6dc8960c6e"}
         io.github.kotoba-lang/kami-engine-motor       {:git/url "https://github.com/kotoba-lang/kami-engine-motor.git"
-                                           :sha "d49a16e7563ef230531b3b0c7f3152f5f9d2ce8c"}}
+                                           :sha "d49a16e7563ef230531b3b0c7f3152f5f9d2ce8c"}
+        ;; CAD/CAM bridge (vdesign.cad / vdesign.process): brep = BREP
+        ;; packaging-envelope kernel, cnc = real toolpath/G-code engine,
+        ;; cad = kotoba-lang's artifact-registry/maturity-scoring layer
+        ;; (NOT a geometry kernel despite the name; see vdesign.cad docstring)
+        io.github.kotoba-lang/brep {:git/url "https://github.com/kotoba-lang/brep.git"
+                                    :sha "967021dfc2cef99efdca1f51ad3edd4c63acf641"}
+        io.github.kotoba-lang/cnc  {:git/url "https://github.com/kotoba-lang/cnc.git"
+                                    :sha "aa11b30c3fa23d9fe3756e1ebed4d938afe74590"}
+        io.github.kotoba-lang/cad  {:git/url "https://github.com/kotoba-lang/cad.git"
+                                    :sha "8473733293c090e6509f6cb30a5890661d279e40"}}
  :aliases
  {;; offline workspace dev — pin transitive langchain to local checkout
   :dev {:override-deps
