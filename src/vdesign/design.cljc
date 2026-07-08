@@ -191,8 +191,8 @@
       ;;    all written to the kotoba Datom log. Runs only for a design that
       ;;    both closed (physics) and survived (sim).
       (g/add-node :process
-        (fn [{:keys [design]}]
-          (let [p (process/plan design)]
+        (fn [{:keys [design verification review]}]
+          (let [p (process/plan design {:verification verification :review review})]
             {:process p
              :datoms  (:datoms p)
              :audit   [{:t :process-plan
@@ -200,7 +200,10 @@
                         :cam-jobs (count (:cam p))
                         :assembly-steps (count (:assembly p))
                         :line-takt-s (:takt-s p)
-                        :datoms (:datom-count p)}]})))
+                        :datoms (:datom-count p)
+                        :maturity (get-in p [:maturity :review :review/maturity])
+                        :maturity-score (get-in p [:maturity :score :score/overall])
+                        :maturity-coverage (get-in p [:maturity :coverage :coverage/score])}]})))
 
       ;; 8. Emit the (released or rejected) design.
       (g/add-node :emit

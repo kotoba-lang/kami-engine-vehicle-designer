@@ -58,12 +58,14 @@
       (is (some? (:geometry design)))
       (is (some? (:envelope-buck p)))
       (is (str/includes? (get-in p [:envelope-buck :gcode]) "M30"))
+      (is (str/includes? (get-in p [:envelope-buck :dxf]) "ENTITIES"))
       (is (pos? (get-in p [:envelope-buck :triangle-count])))
-      ;; one classified artifact per CAM job's .nc file, plus the envelope .stl
-      (is (= (inc (count (:cam p))) (count (:artifacts p))))
+      ;; one classified artifact per CAM job's .nc file, plus the envelope .stl + .dxf
+      (is (= (+ 2 (count (:cam p))) (count (:artifacts p))))
       (is (some #(= :mesh/stl (:artifact/id %)) (:artifacts p)))
+      (is (some #(= :cad/dxf (:artifact/id %)) (:artifacts p)))
       (is (every? #(= :toolpath/gcode (:artifact/id %))
-                  (remove #(= :mesh/stl (:artifact/id %)) (:artifacts p)))))))
+                  (remove #(#{:mesh/stl :cad/dxf} (:artifact/id %)) (:artifacts p)))))))
 
 (deftest process-plan-without-geometry-skips-envelope-buck
   (testing "designs assembled without :geometry (older/hand-rolled callers)
@@ -72,3 +74,85 @@
           p      (process/plan design)]
       (is (nil? (:envelope-buck p)))
       (is (= (count (:cam p)) (count (:artifacts p)))))))
+
+;; ── maturity: real kotoba-lang/cad scoring, not a hardcoded label ──────────
+
+(deftest maturity-omitted-without-verification-or-review
+  (testing "process/plan without a :maturity call site (no 2nd arg) still
+            reports a real score, just with zero approvals earned yet"
+    (let [design (released-design {:class :sedan :range-km 500} :bev)
+          p      (process/plan design)
+          m      (:maturity p)]
+      (is (some? m))
+      (is (contains? (:approvals m) :engineering/physics-closure)
+          "the design IS :released, so physics-closure is genuinely earned")
+      (is (not (contains? (:approvals m) :manufacturing/sim-verify))
+          "no verification was passed in, so this gate is NOT claimed")
+      (is (not (contains? (:approvals m) :release/design-review)))
+      (is (= 5 (:stage m)) "Toolpath, not Release -- no human sign-off was passed in")
+      (is (not= :mrl/production-candidate (get-in m [:review :review/maturity]))
+          "production-candidate needs :release/design-review, which was not earned"))))
+
+(deftest maturity-improves-with-real-verification-and-approval
+  (testing "passing the pipeline's own real gates (sim-verify pass + human
+            design-review sign-off) earns more approvals and a higher MRL --
+            not by asserting a bigger number, by actually running the gates"
+    (let [design (released-design {:class :sedan :range-km 500} :bev)
+          verification {:passed? true :min-sf 1.6}
+          review {:status :approved}
+          p (process/plan design {:verification verification :review review})
+          m (:maturity p)]
+      (is (= #{:engineering/physics-closure :manufacturing/sim-verify
+               :manufacturing/artifacts-classified :release/design-review}
+             (:approvals m))
+          "all four real gates fired")
+      (is (= 7 (:stage m)) "Release -- a human actually signed off")
+      (is (>= (get-in m [:score :score/overall]) 65))
+      (is (contains? #{:mrl/pilot-ready :mrl/production-candidate}
+                     (get-in m [:review :review/maturity])))
+      (is (not (contains? (set (get-in m [:review :review/blockers]))
+                          :blocker/policy-approval-low))
+          "the approval blocker clears once real approvals are earned"))))
+
+(deftest real-approvals-never-claims-an-unearned-gate
+  (testing "a failed sim-verify does NOT get counted as an approval, even
+            though other gates passed"
+    (let [design (released-design {:class :sedan :range-km 500} :bev)
+          verification {:passed? false :min-sf 0.9}
+          p (process/plan design {:verification verification})
+          m (:maturity p)]
+      (is (contains? (:approvals m) :engineering/physics-closure))
+      (is (not (contains? (:approvals m) :manufacturing/sim-verify))))))
+
+;; ── end-to-end: the real StateGraph wires verification+review into
+;;    :process automatically, no manual bypass -- for both powertrains ────
+
+(defn- run-to-done [requirements powertrain]
+  (let [actor (design/build)
+        tid   (str "t/e2e/" (gensym))]
+    (g/run* actor {:requirements requirements :powertrain powertrain} {:thread-id tid})
+    (g/run* actor nil {:thread-id tid})))
+
+(deftest full-graph-run-reaches-production-candidate-automatically
+  (testing "once the design-review interrupt is resumed, :process sees the
+            SAME verification/review the graph itself computed -- no
+            call site has to thread them through by hand"
+    (doseq [pt [:bev :fcev]]
+      (let [res (run-to-done {:class :sedan :range-km 500} pt)
+            p   (get-in res [:state :process])
+            m   (:maturity p)]
+        (testing (str pt " reaches :done with a released design")
+          (is (= :done (:status res)))
+          (is (= :released (get-in res [:state :design :status]))))
+        (testing (str pt " maturity is computed from the graph's own state, not re-derived")
+          (is (= #{:engineering/physics-closure :manufacturing/sim-verify
+                   :manufacturing/artifacts-classified :release/design-review}
+                 (:approvals m)))
+          (is (= 7 (:stage m)))
+          (is (= 100 (get-in m [:score :score/overall])))
+          (is (= :mrl/production-candidate (get-in m [:review :review/maturity])))
+          (is (empty? (get-in m [:review :review/blockers]))))
+        (testing (str pt " maturity is logged to the Datom ledger, not just returned in-memory")
+          (let [datoms (get-in res [:state :datoms])
+                mrl-datom (some (fn [[_e a v]] (when (= :vdesign.CadMaturity/mrl a) v)) datoms)]
+            (is (= "production-candidate" mrl-datom))))))))
