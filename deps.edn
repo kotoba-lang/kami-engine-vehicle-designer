@@ -7,18 +7,18 @@
         ;; shared, purpose-split libraries (commonized out of this actor)
         io.github.kotoba-lang/datom       {:git/url "https://github.com/kotoba-lang/datom.git"
                                            :sha "d27a5833d59d909367956705f2ec931399c891ee"}
-        io.github.kotoba-lang/vphysics    {:git/url "https://github.com/kotoba-lang/vphysics.git"
+        io.github.kotoba-lang/kami-engine-vphysics    {:git/url "https://github.com/kotoba-lang/kami-engine-vphysics.git"
                                            :sha "32c2329ed6bd1074b2d0d3dab17f3440477cbbc3"}
         ;; CAE seeds — computed values injected into the design loop (#2/#3):
         ;;   aero  → Cd (range), crash → structural SF (simverify),
         ;;   echem → FCEV stack efficiency (H2 consumption)
-        io.github.kotoba-lang/aero        {:git/url "https://github.com/kotoba-lang/aero.git"
+        io.github.kotoba-lang/kami-engine-aero        {:git/url "https://github.com/kotoba-lang/kami-engine-aero.git"
                                            :sha "7151ae056b8dcd8338c9717d932e347c1817ba66"}
-        io.github.kotoba-lang/crash       {:git/url "https://github.com/kotoba-lang/crash.git"
+        io.github.kotoba-lang/kami-engine-crash       {:git/url "https://github.com/kotoba-lang/kami-engine-crash.git"
                                            :sha "fa29f4e0282c5ab00741084dc9492b5fe76e5b1a"}
-        io.github.kotoba-lang/echem       {:git/url "https://github.com/kotoba-lang/echem.git"
+        io.github.kotoba-lang/kami-engine-echem       {:git/url "https://github.com/kotoba-lang/kami-engine-echem.git"
                                            :sha "2a6b330a876515c8625bac70edd44a6dc8960c6e"}
-        io.github.kotoba-lang/motor       {:git/url "https://github.com/kotoba-lang/motor.git"
+        io.github.kotoba-lang/kami-engine-motor       {:git/url "https://github.com/kotoba-lang/kami-engine-motor.git"
                                            :sha "d49a16e7563ef230531b3b0c7f3152f5f9d2ce8c"}}
  :aliases
  {;; offline workspace dev — pin transitive langchain to local checkout
