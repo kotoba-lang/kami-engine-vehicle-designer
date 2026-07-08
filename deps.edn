@@ -20,14 +20,15 @@
                                            :sha "2a6b330a876515c8625bac70edd44a6dc8960c6e"}
         io.github.kotoba-lang/kami-engine-motor       {:git/url "https://github.com/kotoba-lang/kami-engine-motor.git"
                                            :sha "d49a16e7563ef230531b3b0c7f3152f5f9d2ce8c"}
-        ;; CAD/CAM bridge (vdesign.cad / vdesign.process): brep = BREP
-        ;; packaging-envelope kernel, cnc = real toolpath/G-code engine,
-        ;; cad = kotoba-lang's artifact-registry/maturity-scoring layer
-        ;; (NOT a geometry kernel despite the name; see vdesign.cad docstring)
-        io.github.kotoba-lang/brep {:git/url "https://github.com/kotoba-lang/brep.git"
-                                    :sha "d3fe6183fb3af838de8679e963fedf56cc5cf8d1"}
-        io.github.kotoba-lang/cnc  {:git/url "https://github.com/kotoba-lang/cnc.git"
-                                    :sha "3957dab6ea2317522f5f87d8d279ba8d3117e4d3"}
+        ;; CAD/CAM bridge (vdesign.cad / vdesign.process): org-iso-10303
+        ;; (renamed from brep) = BREP kernel + STEP I/O, org-iso-6983
+        ;; (renamed from cnc) = real toolpath/G-code engine, cad =
+        ;; kotoba-lang's artifact-registry/maturity-scoring layer (NOT a
+        ;; geometry kernel despite the name; see vdesign.cad docstring)
+        io.github.kotoba-lang/org-iso-10303 {:git/url "https://github.com/kotoba-lang/org-iso-10303.git"
+                                             :sha "36d50ebe65d07e4ba5714388c8863e7dfa98becc"}
+        io.github.kotoba-lang/org-iso-6983  {:git/url "https://github.com/kotoba-lang/org-iso-6983.git"
+                                             :sha "e1998926e70c3707b2dcb751df0f1380dd86c0bc"}
         io.github.kotoba-lang/cad  {:git/url "https://github.com/kotoba-lang/cad.git"
                                     :sha "8473733293c090e6509f6cb30a5890661d279e40"}}
  :aliases
