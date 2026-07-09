@@ -111,8 +111,11 @@
      :stack-mass-kg stack
      :buffer-mass-kg buffer
      :propulsion-mass-kg (+ stack buffer motor)
-     :store-mass-kg (+ tank h2-kg)
-     :mass-kg (+ tank h2-kg stack buffer motor)
+     ;; `tank` (h2-kg / grav-frac) is already the FULL tank-system mass --
+     ;; grav-frac is usable-H2 / tank-system-mass, so the H2 fuel is already
+     ;; included in `tank`. Adding h2-kg again here double-counts the fuel.
+     :store-mass-kg tank
+     :mass-kg (+ tank stack buffer motor)
      :volume-L tank-vol
      :p-peak-kW (:p-peak-kw concept)}))
 
