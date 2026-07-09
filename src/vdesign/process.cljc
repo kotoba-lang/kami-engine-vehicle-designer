@@ -36,6 +36,15 @@
   (let [g  (:glider-kg mass-budget)
         p  (:propulsion-kg mass-budget)
         s  (:energy-store-kg mass-budget)
+        ;; :propulsion-kg mirrors size-fcev's :propulsion-mass-kg, which for
+        ;; FCEV is stack+buffer+motor combined (not motor-only like BEV).
+        ;; The stack/buffer masses already get their own BOM lines below
+        ;; (fc-stack / buffer-battery), so only the motor-only remainder of
+        ;; `p` should be split into traction-motor/inverter+reducer here --
+        ;; otherwise the stack/buffer mass is counted twice in the BOM.
+        motor-p (if (= :fcev powertrain)
+                  (- p (:stack-mass-kg energy 0) (:buffer-mass-kg energy 0))
+                  p)
         common
         [{:part "body-in-white"      :qty 1 :mass (* g 0.42) :make :weld}
          {:part "closure-panel"      :qty 4 :mass (* g 0.10) :make :stamp}
@@ -43,8 +52,8 @@
          {:part "wheel+tire"         :qty 4 :mass (* g 0.12) :make :buy}
          {:part "brake-corner"       :qty 4 :mass (* g 0.06) :make :buy}
          {:part "interior+seats"     :qty 1 :mass (* g 0.14) :make :buy}
-         {:part "traction-motor"     :qty 1 :mass (* p 0.55) :make :machine}
-         {:part "inverter+reducer"   :qty 1 :mass (* p 0.45) :make :machine}
+         {:part "traction-motor"     :qty 1 :mass (* motor-p 0.55) :make :machine}
+         {:part "inverter+reducer"   :qty 1 :mass (* motor-p 0.45) :make :machine}
          {:part "hv-harness"         :qty 1 :mass 18         :make :buy}
          {:part "thermal-loop"       :qty 1 :mass 22         :make :buy}]
         store
