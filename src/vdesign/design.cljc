@@ -66,6 +66,12 @@
                      :energy-store-kg (Math/round (double (:store-mass-kg store)))
                      :propulsion-kg   (Math/round (double (:propulsion-mass-kg store)))}
      :margins       margins
+     :physics       {:regen-credit (if (= :bev (:powertrain concept)) 0.15 0.0)
+                     :aux-power-w (:p-aux-w concept)
+                     :body {:crr (:crr concept)
+                            :cd (:cd concept)
+                            :frontal-area (:frontal-area concept)
+                            :avg-speed (:avg-speed concept)}}
      :geometry      (geometry-of concept)}))
 
 (defn build
