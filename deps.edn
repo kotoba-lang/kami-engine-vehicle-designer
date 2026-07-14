@@ -34,7 +34,13 @@
         io.github.kotoba-lang/org-iso-6983  {:git/url "https://github.com/kotoba-lang/org-iso-6983.git"
                                              :sha "e1998926e70c3707b2dcb751df0f1380dd86c0bc"}
         io.github.kotoba-lang/cad  {:git/url "https://github.com/kotoba-lang/cad.git"
-                                    :sha "8473733293c090e6509f6cb30a5890661d279e40"}}
+                                    :sha "8473733293c090e6509f6cb30a5890661d279e40"}
+        ;; Real time-stepped 2D rigid-body physics (vdesign.simphysics,
+        ;; ADR-2607151600) — a genuine, tested impulse-based solver restored
+        ;; 1:1 from the deleted kami-physics-2d Rust crate, NOT a new engine
+        ;; written for this actor.
+        io.github.kotoba-lang/physics-2d {:git/url "https://github.com/kotoba-lang/physics-2d.git"
+                                          :sha "03b6c23c8d9aa36b92a8130fd3e37fc2548b4d26"}}
  :aliases
  {;; offline workspace dev — pin transitive langchain to local checkout
   :dev {:override-deps
