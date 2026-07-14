@@ -9,7 +9,7 @@
                                            :sha "d27a5833d59d909367956705f2ec931399c891ee"}
         io.github.kotoba-lang/kami-engine-vphysics
         {:git/url "https://github.com/kotoba-lang/kami-engine-vphysics.git"
-         :git/sha "4740d2233dce4e4517fe0eecedb2086251028c6a"}
+         :git/sha "f6b5936c5009b61c681f7926a0ab10c0030841b6"}
         io.github.kotoba-lang/physics
         {:git/url "https://github.com/kotoba-lang/physics.git"
          :git/sha "3081560a4327319d9916a3c1c53471223462c0c3"}
