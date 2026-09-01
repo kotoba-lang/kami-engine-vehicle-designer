@@ -23,3 +23,54 @@
           store   (pt/size-fcev (glider concept) concept (:glider-mass concept))]
       (is (= (:mass-kg store)
              (+ (:store-mass-kg store) (:propulsion-mass-kg store)))))))
+
+;; ── b2w path efficiency + motor provenance (:rom-motor :eff-peak) ──────────
+;; The sized motor's efficiency is computed (:cae-probe audit) but the energy
+;; sizing had no path to use it. compose-b2w-eff is that path — and it refuses
+;; to invent the inverter·gearbox split of the 0.88 default.
+
+(deftest b2w-eff-defaults-to-tech-table-with-provenance
+  (let [c (proposer/propose {:class :sedan :range-km 500} :bev)
+        r (pt/size-bev (glider c) c (:glider-mass c))]
+    (is (= 0.88 (:b2w-eff r)))
+    (is (= :tech-default (:b2w-eff-source r)))))
+
+(deftest b2w-eff-motor-corrected-when-reference-declared
+  (let [c   (assoc (proposer/propose {:class :sedan :range-km 500} :bev)
+                   :motor-eff 0.96 :b2w-ref-motor-eff 0.94)
+        r   (pt/size-bev (glider c) c (:glider-mass c))
+        base (pt/size-bev (glider (dissoc c :motor-eff :b2w-ref-motor-eff))
+                          (dissoc c :motor-eff :b2w-ref-motor-eff)
+                          (:glider-mass c))]
+    (is (= :motor-corrected (:b2w-eff-source r)))
+    (is (< (Math/abs (- (:b2w-eff r) (* 0.88 (/ 0.96 0.94)))) 1e-12))
+    (is (= (:b2w-ref-motor-eff r) 0.94) "provenance carried in the result")
+    ;; a more efficient motor than the reference assumption → LESS battery
+    ;; energy per km (correction has the right sign)
+    (is (< (:consumption-kWh-km r) (:consumption-kWh-km base)))))
+
+(deftest b2w-eff-fcev-same-contract
+  (let [c (assoc (proposer/propose {:class :sedan :range-km 500} :fcev)
+                 :motor-eff 0.93 :b2w-ref-motor-eff 0.94)
+        r (pt/size-fcev (glider c) c (:glider-mass c))]
+    (is (= :motor-corrected (:b2w-eff-source r)))
+    (is (< (Math/abs (- (:b2w-eff r) (* 0.88 (/ 0.93 0.94)))) 1e-12))
+    ;; H2 per km scales with the corrected path efficiency
+    (is (pos? (:h2-kg r)))))
+
+(deftest b2w-eff-refuses-motor-eff-without-reference
+  ;; the inverter·gearbox share of the 0.88 default is UNMEASURED here; a
+  ;; supplied motor efficiency without its reference would require assuming
+  ;; that split, so the contract throws instead.
+  (is (thrown-with-msg? Exception #"b2w-ref-motor-eff"
+        (pt/compose-b2w-eff 0.88 {:motor-eff 0.96})))
+  (let [c (assoc (proposer/propose {:class :sedan :range-km 500} :bev)
+                 :motor-eff 0.96)]
+    (is (thrown-with-msg? Exception #"b2w-ref-motor-eff"
+          (pt/size-bev (glider c) c (:glider-mass c))))))
+
+(deftest b2w-eff-validates-range
+  (is (thrown-with-msg? Exception #"\(0, 1\]"
+        (pt/compose-b2w-eff 0.88 {:motor-eff 0.96 :b2w-ref-motor-eff 1.5})))
+  (is (thrown-with-msg? Exception #"\(0, 1\]"
+        (pt/compose-b2w-eff 0.88 {:motor-eff 0.0 :b2w-ref-motor-eff 0.9}))))

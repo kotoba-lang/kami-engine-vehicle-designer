@@ -48,6 +48,51 @@
 (def road-load-J-per-km phys/road-load-J-per-km)
 (def aux-J-per-km        phys/aux-J-per-km)
 
+;; ───────────────── b2w path efficiency + motor provenance ──────────────────
+
+(defn compose-b2w-eff
+  "Battery→wheel path efficiency for energy sizing, with motor provenance.
+
+   The tech-table :b2w-eff (0.88) folds inverter·motor·gearbox into one
+   declared 2026-production assumption. When a SOLVED traction-motor
+   efficiency is available (:rom-motor :eff-peak from kami-engine-motor),
+   the path can be corrected for the actually-sized motor — but ONLY if the
+   motor efficiency assumed inside the tech default is also declared
+   (:b2w-ref-motor-eff): the inverter·gearbox share of 0.88 has never been
+   separated out here, so without that reference the correction factor
+   (motor-eff / ref-motor-eff) is unknowable.
+
+   - no :motor-eff            → tech default, :b2w-eff-source :tech-default
+   - :motor-eff, no reference → LOUD refusal (ex-info); never assume the split
+   - both                     → b2w-eff × motor-eff / ref, :motor-corrected,
+                                carrying both provenance values
+
+   Unknown remains explicitly unmeasured; this contract never invents the
+   inverter·gearbox split."
+  [tech-default {:keys [motor-eff b2w-ref-motor-eff]}]
+  (cond
+    (nil? motor-eff)
+    {:b2w-eff tech-default :b2w-eff-source :tech-default}
+
+    (nil? b2w-ref-motor-eff)
+    (throw (ex-info (str "motor-eff supplied without :b2w-ref-motor-eff — the "
+                         "inverter·gearbox share of the b2w-eff default is "
+                         "unmeasured, so no correction factor exists. Declare "
+                         "the reference motor efficiency (:b2w-ref-motor-eff) "
+                         "or omit :motor-eff.")
+                    {:motor-eff motor-eff}))
+
+    :else
+    (let [m-eff (double motor-eff)
+          r-eff (double b2w-ref-motor-eff)]
+      (when-not (and (pos? m-eff) (pos? r-eff) (<= m-eff 1.0) (<= r-eff 1.0))
+        (throw (ex-info "motor efficiencies must be in (0, 1]"
+                        {:motor-eff m-eff :b2w-ref-motor-eff r-eff})))
+      {:b2w-eff (* tech-default (/ m-eff r-eff))
+       :b2w-eff-source :motor-corrected
+       :b2w-motor-eff m-eff
+       :b2w-ref-motor-eff r-eff})))
+
 ;; ───────────────────────── BEV energy system ─────────────────────────
 
 (defn size-bev
@@ -55,8 +100,13 @@
   Returns {:kind :bev :consumption-kWh-km .. :usable-kWh .. :nominal-kWh ..
            :mass-kg .. :volume-L .. :p-peak-kW ..}."
   [glider concept mass-kg]
-  (let [{:keys [b2w-eff dcdc-eff regen-credit dod pack-Wh-kg pack-kWh-L motor-kW-kg]}
+  (let [{:keys [dcdc-eff regen-credit dod pack-Wh-kg pack-kWh-L motor-kW-kg]}
         (:bev tech)
+        ;; b2w path efficiency: motor-corrected when a solved motor efficiency
+        ;; AND its tech-default reference are both declared (provenance kept);
+        ;; otherwise the tech default, flagged :tech-default.
+        {:keys [b2w-eff b2w-eff-source b2w-motor-eff b2w-ref-motor-eff]}
+        (compose-b2w-eff (:b2w-eff (:bev tech)) concept)
         {:keys [range-km]} concept
         e-mech   (road-load-J-per-km glider mass-kg regen-credit)
         e-aux    (aux-J-per-km (:p-aux-w concept) (:avg-speed glider))
@@ -69,6 +119,10 @@
         motor    (or (:motor-mass-kg concept)            ; computed by motor-clj (#3)
                      (/ (:p-peak-kw concept) motor-kW-kg))]
     {:kind :bev
+     :b2w-eff b2w-eff
+     :b2w-eff-source b2w-eff-source
+     :b2w-motor-eff b2w-motor-eff
+     :b2w-ref-motor-eff b2w-ref-motor-eff
      :consumption-kWh-km cons-kWh
      :usable-kWh usable
      :nominal-kWh nominal
@@ -85,12 +139,15 @@
   H2(LHV) → electric (stack) → wheel (buffer/motor). Returns the parallel
   shape to `size-bev`, with H2 mass + tank/stack/buffer breakdown."
   [glider concept mass-kg]
-  (let [{:keys [b2w-eff regen-credit grav-frac h2-kg-L tank-overhead
+  (let [{:keys [regen-credit grav-frac h2-kg-L tank-overhead
                 fc-kW-kg motor-kW-kg buffer-kWh buffer-Wh-kg]}
         (:fcev tech)
         ;; stack efficiency: a computed echem (:rom-fc) value injected by the
         ;; design graph overrides the tech default (#3 wiring).
         fc-elec-eff (or (:fc-elec-eff concept) (get-in tech [:fcev :fc-elec-eff]))
+        ;; b2w path efficiency: same motor-provenance contract as :bev.
+        {:keys [b2w-eff b2w-eff-source b2w-motor-eff b2w-ref-motor-eff]}
+        (compose-b2w-eff (:b2w-eff (:fcev tech)) concept)
         {:keys [range-km]} concept
         e-mech   (road-load-J-per-km glider mass-kg regen-credit)
         e-aux    (aux-J-per-km (:p-aux-w concept) (:avg-speed glider))
@@ -105,6 +162,10 @@
         motor    (or (:motor-mass-kg concept)            ; computed by motor-clj (#3)
                      (/ (:p-peak-kw concept) motor-kW-kg))]
     {:kind :fcev
+     :b2w-eff b2w-eff
+     :b2w-eff-source b2w-eff-source
+     :b2w-motor-eff b2w-motor-eff
+     :b2w-ref-motor-eff b2w-ref-motor-eff
      :h2-kg h2-kg
      :consumption-kWh-km (/ h2-J J-per-kWh)            ; H2 LHV basis
      :tank-mass-kg tank
