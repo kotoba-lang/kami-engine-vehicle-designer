@@ -37,14 +37,23 @@
 
   Each step: size the energy store at the current operating mass, recompute
   curb = glider + store(+motor); stop when curb stops moving (converged) or
-  it runs past the gross limit / iteration budget (diverged)."
-  [powertrain glider concept]
+  it runs past the gross limit / iteration budget (diverged).
+
+  opts (optional map):
+    :store-fn — optional (fn [glider concept mass-kg] -> store). When
+    supplied it REPLACES the pt/size dispatch for every spiral step (the
+    cartridge-fed path uses this); when absent the behavior is exactly
+    the pre-existing tank/battery dispatch. The returned store must
+    carry :mass-kg and :store-mass-kg numbers like pt/size results."
+  [powertrain glider concept & [{:keys [store-fn]}]]
   (let [glider-mass (:glider-mass concept)
         gross       (:gross-limit concept)]
     (loop [curb (double (:target-curb-kg concept))   ; seed from the proposer's guess
            n    0
            hist []]
-      (let [store (pt/size powertrain glider concept (operating-mass curb))
+      (let [store (if store-fn
+                    (store-fn glider concept (operating-mass curb))
+                    (pt/size powertrain glider concept (operating-mass curb)))
             curb' (+ glider-mass (:mass-kg store))
             hist' (conj hist (Math/round curb'))]
         (cond
@@ -66,13 +75,19 @@
 
   Violations are independent gates — a design must pass ALL of them. This
   is the design-actor invariant: nothing the governor hasn't closed and
-  cleared on every gate may leave the actor as a spec."
-  [powertrain glider concept]
+  cleared on every gate may leave the actor as a spec.
+
+  opts — optional map passed through to `close-mass` (:store-fn). A store
+  reporting :unmeasured :volume-L (cartridge path) makes the packaging
+  gate UNVERIFIABLE: it is listed in :unverified-gates and never reads as
+  a silent pass or fail."
+  [powertrain glider concept & [{:keys [store-fn] :as opts}]]
   (let [{:keys [converged? curb-mass-kg store iterations reason history]}
-        (close-mass powertrain glider concept)
+        (close-mass powertrain glider concept opts)
         gross    (:gross-limit concept)
         avail-v  (:avail-volume-L concept)
         store-v  (:volume-L store)
+        store-v-num? (number? store-v)
         store-frac (/ (:store-mass-kg store) curb-mass-kg)
         viol (cond-> []
                (not converged?)
@@ -87,7 +102,7 @@
                       :detail (str (Math/round curb-mass-kg) " kg curb exceeds "
                                    gross " kg gross-mass limit.")})
 
-               (and converged? (> store-v avail-v))
+               (and converged? store-v-num? (> store-v avail-v))
                (conj {:gate :packaging
                       :detail (str (Math/round (double store-v)) " L energy store "
                                    "exceeds " avail-v " L package envelope ("
@@ -100,10 +115,11 @@
                                    "structurally/commercially unviable).")}))]
     {:closes?      (and converged? (empty? viol))
      :violations   viol
+     :unverified-gates (if (and converged? (not store-v-num?)) [:packaging] [])
      :curb-mass-kg curb-mass-kg
      :store        store
      :iterations   iterations
      :history      history
      :margins      {:gross-kg     (- gross curb-mass-kg)
-                    :volume-L     (- avail-v store-v)
+                    :volume-L     (if store-v-num? (- avail-v store-v) :unmeasured)
                     :store-frac   store-frac}}))
