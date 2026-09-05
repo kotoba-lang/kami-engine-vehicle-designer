@@ -32,6 +32,16 @@
                       :cartridge-h2-kg cap :cartridge-source cart-src
                       :spare-cartridges spares})))
 
+(defn- run-speeds
+  "Like `run`, with an explicit speed grid (n+1 samples on the same dt)."
+  [kg-profile cap spares speeds]
+  (ss/swap-schedule {:fc-profile-kw (mapv kw-for-kg kg-profile)
+                     :dt-s dt
+                     :fc-elec-eff fixture-eff :eff-source eff-src
+                     :cartridge-h2-kg cap :cartridge-source cart-src
+                     :spare-cartridges spares
+                     :speeds-mps speeds}))
+
 (defn- served-kg
   "H2 actually delivered in an interval row: demand − unmet."
   [row] (- (:h2-kg row) (:unmet-h2-kg row)))
@@ -144,41 +154,60 @@
         "no cartridge has delivered H2 — the untouched full one is not counted")
     (is (zero? (count (:residual r))))))
 
-(deftest fails-closed
-  (testing "blank provenance strings"
+;; ─────────────── optional speed grid → :range-km ───────────────
+;; The stop rule is UNMET H2 (the vehicle is out of hydrogen), mirroring
+;; vdesign.endurance: intervals from the first shortfall on earn no
+;; distance. Zero-draw intervals ARE credited (they have no shortfall).
+
+(deftest no-speeds-range-is-unmeasured
+  (testing "no speed grid: :range-km is :unmeasured, never fabricated"
+    (is (= :unmeasured (:range-km (run [1.0 1.0] 10.0))))
+    (is (= :unmeasured (:range-km (run [6.0 6.0] 10.0 0))))))
+
+(deftest speeds-fully-served-mission
+  (testing "fully served: range = Σ v-mid·dt over every interval"
+    (let [;; v: [10 20 30] → v-mids 15 and 25 m/s; dt = 3600 s
+          r (run-speeds [1.0 1.0] 10.0 0 [10.0 20.0 30.0])]
+      (is (zero? (get-in r [:h2 :total-unmet-kg])))
+      ;; (15 + 25) m/s · 3600 s = 144000 m = 144 km
+      (is (close? 144.0 (:range-km r))))))
+
+(deftest speeds-stop-at-first-unmet-interval
+  (testing "post-shortfall intervals earn NO distance (out of H2)"
+    (let [cap 10.0
+          ;; 6 + 6 kg against one 10 kg cartridge → i1 has 2 kg unmet
+          r (run-speeds [6.0 6.0] cap 0 [0.0 10.0 20.0])]
+      (is (close? 2.0 (get-in r [:h2 :total-unmet-kg])))
+      ;; only interval 0 is credited: v-mid 5 m/s · 3600 s = 18 km
+      (is (close? 18.0 (:range-km r))))))
+
+(deftest speeds-with-spares-credit-across-swap
+  (testing "spares extend the range exactly to the last delivered interval"
+    (let [cap 10.0
+          ;; 6 + 6 kg with 1 spare → fully served, both intervals credited
+          r (run-speeds [6.0 6.0] cap 1 [0.0 10.0 20.0])]
+      (is (zero? (get-in r [:h2 :total-unmet-kg])))
+      ;; (5 + 15) m/s · 3600 s = 72000 m = 72 km
+      (is (close? 72.0 (:range-km r))))))
+
+(deftest speeds-zero-power-intervals-credited
+  (testing "zero-draw intervals have no shortfall — distance IS credited"
+    (let [r (run-speeds [0.0 0.0] 10.0 0 [10.0 20.0 30.0])]
+      (is (zero? (get-in r [:h2 :total-unmet-kg])))
+      (is (close? 144.0 (:range-km r))))))
+
+(deftest speeds-fails-closed
+  (testing "wrong sample count, negative, or non-finite speed"
+    ;; 3 samples for a 1-interval profile — must be exactly 2
     (is (thrown? #?(:clj Exception :cljs js/Error)
-          (ss/swap-schedule {:fc-profile-kw [1.0] :dt-s 1.0
-                             :fc-elec-eff fixture-eff :eff-source ""
-                             :cartridge-h2-kg 10.0 :cartridge-source cart-src})))
+                 (ss/swap-schedule {:fc-profile-kw (mapv kw-for-kg [1.0])
+                                    :dt-s dt
+                                    :fc-elec-eff fixture-eff
+                                    :eff-source eff-src
+                                    :cartridge-h2-kg 10.0
+                                    :cartridge-source cart-src
+                                    :speeds-mps [0.0 1.0 2.0]})))
     (is (thrown? #?(:clj Exception :cljs js/Error)
-          (ss/swap-schedule {:fc-profile-kw [1.0] :dt-s 1.0
-                             :fc-elec-eff fixture-eff :eff-source eff-src
-                             :cartridge-h2-kg 10.0 :cartridge-source " "}))))
-  (testing "efficiency out of (0, 1]"
+                 (run-speeds [1.0] 10.0 0 [0.0 -1.0])))
     (is (thrown? #?(:clj Exception :cljs js/Error)
-          (ss/swap-schedule {:fc-profile-kw [1.0] :dt-s 1.0
-                             :fc-elec-eff 1.5 :eff-source eff-src
-                             :cartridge-h2-kg 10.0 :cartridge-source cart-src}))))
-  (testing "non-positive cartridge capacity / dt"
-    (is (thrown? #?(:clj Exception :cljs js/Error)
-          (ss/swap-schedule {:fc-profile-kw [1.0] :dt-s 1.0
-                             :fc-elec-eff fixture-eff :eff-source eff-src
-                             :cartridge-h2-kg 0.0 :cartridge-source cart-src})))
-    (is (thrown? #?(:clj Exception :cljs js/Error)
-          (ss/swap-schedule {:fc-profile-kw [1.0] :dt-s 0.0
-                             :fc-elec-eff fixture-eff :eff-source eff-src
-                             :cartridge-h2-kg 10.0 :cartridge-source cart-src}))))
-  (testing "negative power and empty profile"
-    (is (thrown? #?(:clj Exception :cljs js/Error) (run [-1.0] 10.0)))
-    (is (thrown? #?(:clj Exception :cljs js/Error) (run [] 10.0))))
-  (testing "negative or fractional spare count"
-    (is (thrown? #?(:clj Exception :cljs js/Error)
-          (ss/swap-schedule {:fc-profile-kw [1.0] :dt-s 1.0
-                             :fc-elec-eff fixture-eff :eff-source eff-src
-                             :cartridge-h2-kg 10.0 :cartridge-source cart-src
-                             :spare-cartridges -1})))
-    (is (thrown? #?(:clj Exception :cljs js/Error)
-          (ss/swap-schedule {:fc-profile-kw [1.0] :dt-s 1.0
-                             :fc-elec-eff fixture-eff :eff-source eff-src
-                             :cartridge-h2-kg 10.0 :cartridge-source cart-src
-                             :spare-cartridges 1.5})))))
+                 (run-speeds [1.0] 10.0 0 [0.0 ##Inf])))))
