@@ -68,9 +68,10 @@
 
   Fails closed: non-positive `:cartridge-h2-kg`, efficiency outside
   (0, 1], non-positive dt, negative power, empty profile, non-integer
-  or negative `:spare-cartridges`. A mission that exhausts all spares
-  is NOT an exception — it is a reported shortfall with the exact
-  interval it first occurs."
+  or negative `:spare-cartridges`, or (when `:speeds-mps` is given)
+  a sample count ≠ (intervals + 1), a negative speed, or a non-finite
+  speed. A mission that exhausts all spares is NOT an exception — it is
+  a reported shortfall with the exact interval it first occurs."
   (:require [vdesign.powertrain :as pt]))
 
 (def LHV-H2-J pt/LHV-H2-J)   ; J/kg, LHV — re-export, single provenance point
@@ -111,6 +112,17 @@
     :spare-cartridges    optional non-negative integer count of full
                          spares carried (default 0 — one cartridge
                          installed, no spares)
+    :speeds-mps          optional speed-vs-time grid, (n+1) samples, each
+                         ≥ 0, on the SAME :dt-s (e.g. the :speeds-mps of
+                         a vdesign.dutycycle cycle). Present ⇒ :range-km
+                         reports the distance covered while H2 was
+                         actually delivered: intervals up to (but not
+                         including) the first unmet interval are
+                         credited — from the first shortfall on the
+                         vehicle is out of H2 and earns NO distance, the
+                         same rule `vdesign.endurance` applies. Absent ⇒
+                         :range-km is :unmeasured — never a fabricated
+                         distance.
     :label / :case/id    optional echo for the datom log
 
   Returns
@@ -127,6 +139,7 @@
                                          ; at their own interval)
              :total-cartridges-consumed
              :spares-exhausted? :residual-h2-kg}
+     :range-km <number | :unmeasured>
      :residual [{:cartridge-index :installed-at-interval
                  :residual-h2-kg :exhausted-at-interval-or-nil} ...]
      :provenance {:fc-elec-eff .. :eff-source .. :cartridge-h2-kg ..
@@ -139,7 +152,8 @@
                   :plateau-pressure true
                   :swap-duration true
                   :swap-vent-losses true
-                  :partial-cartridge-refurbishment true}}
+                  :partial-cartridge-refurbishment true
+                  :speed-grid-interpolation true}}
 
   `:total-cartridges-consumed` counts every cartridge that actually
   delivered H2 — each appears in `:residual` exactly once (exhausted
@@ -147,7 +161,7 @@
   cartridge created after spares are exhausted never delivers, so it
   never appears in either count."
   [{:keys [fc-profile-kw dt-s fc-elec-eff eff-source cartridge-h2-kg
-           cartridge-source spare-cartridges label case/id]}]
+           cartridge-source spare-cartridges speeds-mps label case/id]}]
   (require-kw-list fc-profile-kw)
   (when-not (and (finite? dt-s) (pos? (double dt-s)))
     (throw (ex-info "swap-schedule: :dt-s must be a positive number"
@@ -171,6 +185,18 @@
                    (zero? (mod spare-cartridges 1)))
       (throw (ex-info "swap-schedule: :spare-cartridges must be a non-negative integer"
                       {:spare-cartridges spare-cartridges}))))
+  (when speeds-mps
+    (when-not (sequential? speeds-mps)
+      (throw (ex-info "swap-schedule: :speeds-mps must be a sequence of speeds"
+                      {:speeds-mps speeds-mps})))
+    (when-not (= (count speeds-mps) (inc (count fc-profile-kw)))
+      (throw (ex-info "swap-schedule: :speeds-mps must have (count fc-profile + 1) samples on the same :dt-s grid"
+                      {:speeds-count (count speeds-mps)
+                       :intervals (count fc-profile-kw)})))
+    (doseq [[i v] (map-indexed vector speeds-mps)]
+      (when-not (and (finite? v) (not (neg? (double v))))
+        (throw (ex-info "swap-schedule: speeds must be non-negative finite numbers"
+                        {:index i :speed-mps v})))))
   (let [wh2  (/ (* 2.0 1.008) (+ 24.305 (* 2.0 1.008)))  ; exact stoichiometry, IUPAC 2021 (see cartridge ns provenance table)
         lhv  LHV-H2-J
         jpk  pt/J-per-kWh
@@ -285,7 +311,24 @@
         ;; ledger exactly once (exhausted mid-mission, or partial at
         ;; mission end); the post-shortfall placeholder never delivers,
         ;; never enters it
-        consumed (count residuals)]
+        consumed (count residuals)
+        ;; ── optional range (composition with the caller's speed grid) ──
+        ;; Trapezoid midpoint speeds on the same :dt-s, the exact rule
+        ;; `vdesign.endurance` uses: credit intervals [0, first-unmet),
+        ;; i.e. everything up to but NOT including the first shortfall.
+        ;; From the first unmet interval on, the vehicle is out of H2
+        ;; and no distance is earned. A zero-draw interval has no
+        ;; shortfall, so it IS credited (the vehicle coasts).
+        first-unmet (some (fn [{:keys [i unmet-h2-kg]}]
+                            (when (pos? unmet-h2-kg) i))
+                          rows)
+        credited    (or first-unmet (count rows))
+        v-mids   (when speeds-mps
+                   (mapv (fn [[a b]] (/ (+ (double a) (double b)) 2.0))
+                         (partition 2 1 speeds-mps)))
+        range-m  (when v-mids
+                   (reduce + 0.0 (map (fn [v] (* v (double dt-s)))
+                                      (take credited v-mids))))]
     (cond-> {:kind :cartridge-swap-schedule
              :intervals rows
              :h2 {:total-kg (:h2-total out)
@@ -299,6 +342,7 @@
                      :spares-exhausted? (and (pos? (:unmet out))
                                              (zero? (:spares-left out)))
                      :residual-h2-kg (reduce + 0.0 (map :residual-h2-kg residuals))}
+             :range-km (if (some? range-m) (/ range-m 1000.0) :unmeasured)
              :residual residuals
              :provenance {:fc-elec-eff fc-elec-eff
                           :eff-source eff-source
@@ -316,6 +360,9 @@
                           :plateau-pressure true
                           :swap-duration true
                           :swap-vent-losses true
-                          :partial-cartridge-refurbishment true}}
+                          :partial-cartridge-refurbishment true
+                          ;; the speed grid is a caller-provided sample,
+                          ;; not a measurement this contract makes
+                          :speed-grid-interpolation true}}
       label (assoc :label label)
       id (assoc :case/id id))))
