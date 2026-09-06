@@ -134,7 +134,8 @@
         depleted-at (some (fn [{:keys [h2-shortfall-kg i]}]
                             (when (pos? h2-shortfall-kg) i))
                           rows)]
-    {:intervals rows
+    {:kind :hydrogen-consumption
+     :intervals rows
      :h2 {:total-kg (:h2-total out)
           :total-mgh2-kg (:mgh2-total out)
           :total-e-kwh (:e-total out)
