@@ -23,7 +23,7 @@
             [kotoba.cam.toolpath :as ktoolpath]
             [kotoba.cam.gcode :as kgcode]
             [kotoba.cam.vec3 :as kvec3]
-            [clojure.string :as str]))
+            [kotoba.lang.text :as str]))
 
 (def ^:const module-kWh 5.0)    ; battery module granularity
 (def ^:const tank-kg    3.0)    ; usable H2 per 700-bar cylinder

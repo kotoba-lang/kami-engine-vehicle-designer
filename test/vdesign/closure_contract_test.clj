@@ -8,7 +8,7 @@
        ship a design the PhysicsGovernor hasn't closed.
     4. Energy balance scales monotonically with range (no free energy)."
   (:require [clojure.test :refer [deftest is testing]]
-            [clojure.string :as str]
+            [kotoba.lang.text :as str]
             [langgraph.graph :as g]
             [vdesign.proposer :as proposer]
             [vdesign.physics :as physics]

@@ -6,7 +6,7 @@
   suite runs through the real StateGraph (`vdesign.design/build`), whose
   `spec` always attaches `:geometry` (see design.cljc)."
   (:require [clojure.test :refer [deftest is testing]]
-            [clojure.string :as str]
+            [kotoba.lang.text :as str]
             [langgraph.graph :as g]
             [vdesign.design :as design]
             [vdesign.proposer :as proposer]
