@@ -13,7 +13,7 @@
   the requested range. Every concept it emits is a *proposal*, never a
   spec — `vdesign.physics` (the PhysicsGovernor) censors it. So the
   proposer is free to be bold; the governor makes it honest."
-  (:require [clojure.string :as str]))
+  (:require [kotoba.lang.text :as str]))
 
 ;; Class library: propulsion-agnostic glider + envelope priors. A glider
 ;; is the vehicle MINUS its energy store and motor — body, chassis,

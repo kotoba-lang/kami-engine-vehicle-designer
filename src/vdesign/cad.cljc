@@ -17,7 +17,7 @@
   work-around for the kernel's current maturity, not a hidden one."
   (:require [brep.feature :as feat]
             [brep.tessellate :as tess]
-            [clojure.string :as str]
+            [kotoba.lang.text :as str]
             [kotoba.cad.core :as cad-core]
             [kotoba.cad.runner :as cad-runner]))
 

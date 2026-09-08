@@ -41,7 +41,7 @@
 
   Refusals: non-numeric demand entries, empty profile, non-positive
   `:dt-s` or `:usable-capacity-kwh`, initial soc outside [0, capacity]."
-  (:require [clojure.string :as str]))
+  (:require [kotoba.lang.text :as str]))
 
 (defn- require-positive-number [x k]
   (when-not (and (number? x) (pos? x))

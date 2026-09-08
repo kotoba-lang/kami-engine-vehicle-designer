@@ -9,7 +9,7 @@
 
   Run: clojure -M:dev:run"
   (:require [langgraph.graph :as g]
-            [clojure.string :as str]
+            [kotoba.lang.text :as str]
             [vdesign.design :as design]))
 
 (defn- line [& xs] (println (apply str xs)))
