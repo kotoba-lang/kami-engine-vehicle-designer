@@ -85,18 +85,18 @@ out of identical requirements as physically distinct vehicles.
 
 | File | Actor / role |
 |---|---|
-| `src/vdesign/proposer.cljc` | **DesignProposer** — the contained concept generator (heuristic mock) |
-| `src/vdesign/physics.cljc` | **PhysicsGovernor** — mass closure · energy balance · packaging gates |
-| `src/vdesign/powertrain.cljc` | BEV / FCEV energy-system models (the only powertrain branch) |
-| `src/vdesign/simverify.cljc` | **(a) SimGovernor** — structural · clash · axle on the Isaac/genesis-compat surface + per-env DR |
-| `src/vdesign/process.cljc` | **(b) ProcessPlanner** — BOM → CAM (G-code) → 4D assembly order |
-| `src/vdesign/datom.cljc` | kotoba Datom-log (EAVT) representation — verification + mfg as facts |
-| `src/vdesign/design.cljc` | **VehicleDesignActor** — the langgraph-clj StateGraph (1 run = 1 design pass) |
-| `src/vdesign/sim.cljc` | demo driver |
-| `src/vdesign/simphysics.cljc` | **real time-stepped physics** — `physics-2d`-backed frontal-crash rigid-body simulation |
-| `src/vdesign/scene.cljc` | bridges tessellated geometry + the physics trajectory into `kami.webgpu.mesh`'s real input shape |
-| `src/vdesign/motionplan.cljc` | extends the 4D assembly order into Cartesian assembly-station waypoints |
-| `test/vdesign/closure_contract_test.clj` | the closure + verify + process invariants, executable |
+| `src/vdesign/proposer.cljk` | **DesignProposer** — the contained concept generator (heuristic mock) |
+| `src/vdesign/physics.cljk` | **PhysicsGovernor** — mass closure · energy balance · packaging gates |
+| `src/vdesign/powertrain.cljk` | BEV / FCEV energy-system models (the only powertrain branch) |
+| `src/vdesign/simverify.cljk` | **(a) SimGovernor** — structural · clash · axle on the Isaac/genesis-compat surface + per-env DR |
+| `src/vdesign/process.cljk` | **(b) ProcessPlanner** — BOM → CAM (G-code) → 4D assembly order |
+| `src/vdesign/datom.cljk` | kotoba Datom-log (EAVT) representation — verification + mfg as facts |
+| `src/vdesign/design.cljk` | **VehicleDesignActor** — the langgraph-clj StateGraph (1 run = 1 design pass) |
+| `src/vdesign/sim.cljk` | demo driver |
+| `src/vdesign/simphysics.cljk` | **real time-stepped physics** — `physics-2d`-backed frontal-crash rigid-body simulation |
+| `src/vdesign/scene.cljk` | bridges tessellated geometry + the physics trajectory into `kami.webgpu.mesh`'s real input shape |
+| `src/vdesign/motionplan.cljk` | extends the 4D assembly order into Cartesian assembly-station waypoints |
+| `test/vdesign/closure_contract_test.cljk` | the closure + verify + process invariants, executable |
 
 ## (a) Simulate, (b) datafy the build — the kami-engine bridge
 
