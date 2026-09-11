@@ -50,7 +50,7 @@
  {;; offline workspace dev — pin transitive langchain to local checkout
   :dev {:override-deps
         {io.github.kotoba-lang/langchain {:local/root "../langchain"}}}
-  ;; clojure -M:dev:run  → clean-sheet a BEV and an FCEV from one spec, compare
+  ;; kbb -M:dev:run  → clean-sheet a BEV and an FCEV from one spec, compare
   :run {:main-opts ["-m" "vdesign.sim"]}
   :test {:extra-paths ["test"]
          :extra-deps {io.github.cognitect-labs/test-runner

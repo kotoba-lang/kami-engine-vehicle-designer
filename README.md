@@ -57,8 +57,8 @@ manufacturable spec — and the **mass spiral** (heavier car → bigger store
 ## Run
 
 ```bash
-clojure -M:dev:run     # clean-sheet a sedan as BEV and FCEV, then reject an over-reach
-clojure -M:dev:test    # the closure contract as executable tests
+kbb -M:dev:run     # clean-sheet a sedan as BEV and FCEV, then reject an over-reach
+kbb -M:dev:test    # the closure contract as executable tests
 ```
 
 Demo output clean-sheets the **same** 500 km sedan as a BEV (~67 kWh,
@@ -176,7 +176,7 @@ no new physics engine, CAD kernel, or renderer, and no new Rust:
   inverse-kinematics solver or a robot-controller driver — a plausible,
   honestly-simplified straight-line station layout.
 
-Run `clojure -M:test` (or `:dev:test` inside the monorepo checkout) —
+Run `kbb -M:test` (or `:dev:test` inside the monorepo checkout) —
 these three namespaces' tests are part of the same suite.
 
 ## Status
