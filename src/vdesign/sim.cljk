@@ -7,7 +7,7 @@
     pass 2  sedan 500 km · FCEV   → closes → engineer sign-off → released
     pass 3  city  1500 km · BEV   → mass spiral RUNS AWAY → rejected (MRC)
 
-  Run: clojure -M:dev:run"
+  Run: kbb -M:dev:run"
   (:require [langgraph.graph :as g]
             [kotoba.lang.text :as str]
             [vdesign.design :as design]))
