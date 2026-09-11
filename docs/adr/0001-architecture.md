@@ -70,7 +70,7 @@ glider・路面荷重・包絡は powertrain 非依存。`vdesign.powertrain` �
   エッジのみ）と、物理的に正直な spec を両立。
 - 定数は `vdesign.powertrain/tech` と `vdesign.proposer/classes` に集約（~2026
   量産技術）。セル/タンク進歩はここを retune するだけ。
-- 検証は `test/vdesign/closure_contract_test.clj`（閉包収束・両 powertrain 差・
+- 検証は `test/vdesign/closure_contract_test.cljk`（閉包収束・両 powertrain 差・
   過大要求 reject・エネルギー単調性・「未閉包は release しない」不変条件）。
 
 ## 却下案
