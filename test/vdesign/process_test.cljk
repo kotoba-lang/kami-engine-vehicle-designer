@@ -2,7 +2,7 @@
   "bom's apportioned part masses must sum back to the mass-budget totals
   they were split from -- no double-counting a component that already has
   its own dedicated BOM line."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [vdesign.process :as process]))
 
 (def ^:private bom* #'process/bom)

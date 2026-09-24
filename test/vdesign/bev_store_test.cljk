@@ -1,5 +1,5 @@
 (ns vdesign.bev-store-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [vdesign.bev-store :as store]
             [vdesign.dutycycle :as dc]))
 

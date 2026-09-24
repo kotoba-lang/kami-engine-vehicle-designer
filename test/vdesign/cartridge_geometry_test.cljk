@@ -3,7 +3,7 @@
   closure, fail-closed parameter validation, and the system-rule-7
   replaceable/non-load-bearing invariant. No material or performance
   constant appears anywhere — only π and caller-supplied dimensions."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [vdesign.cartridge-geometry :as cg]))
 
 (def ^:const pi #?(:clj Math/PI :cljs js/Math.PI))

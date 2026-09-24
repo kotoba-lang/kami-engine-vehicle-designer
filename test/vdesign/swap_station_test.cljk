@@ -3,7 +3,7 @@
   audit-log behavior on synthetic fixtures (fixture numbers carry
   fixture provenance; no Mg/MgH2, hydrogen, or code constant is
   measured or invented here)."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [vdesign.swap-schedule :as ss]
             [vdesign.swap-station :as station]
             [vdesign.powertrain :as pt]))

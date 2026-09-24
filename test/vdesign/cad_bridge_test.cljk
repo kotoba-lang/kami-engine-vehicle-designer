@@ -5,7 +5,7 @@
   suite's `release` helper predates `:geometry` and never sets it, so this
   suite runs through the real StateGraph (`vdesign.design/build`), whose
   `spec` always attaches `:geometry` (see design.cljc)."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [kotoba.lang.text :as str]
             [langgraph.graph :as g]
             [vdesign.design :as design]

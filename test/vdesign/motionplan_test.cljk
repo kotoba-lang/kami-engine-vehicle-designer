@@ -1,7 +1,7 @@
 (ns vdesign.motionplan-test
   "vdesign.motionplan's Cartesian-waypoint extension of vdesign.process's
   real BOM + 4D assembly order."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [langgraph.graph :as g]
             [vdesign.design :as design]
             [vdesign.process :as process]

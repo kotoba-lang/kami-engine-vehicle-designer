@@ -7,7 +7,7 @@
     3. An over-reach spec DIVERGES and is REJECTED — the proposer can NEVER
        ship a design the PhysicsGovernor hasn't closed.
     4. Energy balance scales monotonically with range (no free energy)."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [kotoba.lang.text :as str]
             [langgraph.graph :as g]
             [vdesign.proposer :as proposer]

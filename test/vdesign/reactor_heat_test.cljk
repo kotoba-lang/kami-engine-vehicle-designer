@@ -3,7 +3,7 @@
   deficit discipline, and fail-closed validation on synthetic fixtures
   (fixture numbers carry fixture provenance; no Mg/MgH2, hydrogen, or
   code constant is measured or invented here)."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [vdesign.hydrogen :as hyd]
             [vdesign.swap-schedule :as ss]
             [vdesign.reactor-heat :as rh]

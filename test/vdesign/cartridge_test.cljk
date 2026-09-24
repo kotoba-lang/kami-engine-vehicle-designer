@@ -2,7 +2,7 @@
   "MgH2 cartridge stoichiometry: exact identities and mass conservation —
   no tolerance bands where the chemistry closes by identity. All
   performance-shaped properties remain explicitly :unmeasured."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [vdesign.proposer :as proposer]
             [vdesign.powertrain :as pt]
             [vdesign.cartridge :as cart]))
