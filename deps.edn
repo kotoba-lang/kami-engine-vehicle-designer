@@ -8,10 +8,10 @@
         ;; this repo silently rides whatever a sibling happens to name.
         io.github.kotoba-lang/text {:git/sha "73bdb13ae7a3d004b44bca08be03a3191157a38f"}
        io.github.kotoba-lang/langgraph  {:git/url "https://github.com/kotoba-lang/langgraph.git"
-                                          :sha "5b4e5e70837b849b14b6a5800894e3be202ad5fa"}
+                                          :git/sha "5b4e5e70837b849b14b6a5800894e3be202ad5fa"}
         ;; shared, purpose-split libraries (commonized out of this actor)
         io.github.kotoba-lang/datom       {:git/url "https://github.com/kotoba-lang/datom.git"
-                                           :sha "d27a5833d59d909367956705f2ec931399c891ee"}
+                                           :git/sha "d27a5833d59d909367956705f2ec931399c891ee"}
         io.github.kotoba-lang/kami-engine-vphysics
         {:git/url "https://github.com/kotoba-lang/kami-engine-vphysics.git"
          :git/sha "f6b5936c5009b61c681f7926a0ab10c0030841b6"}
@@ -22,30 +22,30 @@
         ;;   aero  → Cd (range), crash → structural SF (simverify),
         ;;   echem → FCEV stack efficiency (H2 consumption)
         io.github.kotoba-lang/kami-engine-aero        {:git/url "https://github.com/kotoba-lang/kami-engine-aero.git"
-                                           :sha "7151ae056b8dcd8338c9717d932e347c1817ba66"}
+                                           :git/sha "7151ae056b8dcd8338c9717d932e347c1817ba66"}
         io.github.kotoba-lang/kami-engine-crash       {:git/url "https://github.com/kotoba-lang/kami-engine-crash.git"
-                                           :sha "fa29f4e0282c5ab00741084dc9492b5fe76e5b1a"}
+                                           :git/sha "fa29f4e0282c5ab00741084dc9492b5fe76e5b1a"}
         io.github.kotoba-lang/kami-engine-echem       {:git/url "https://github.com/kotoba-lang/kami-engine-echem.git"
-                                           :sha "2a6b330a876515c8625bac70edd44a6dc8960c6e"}
+                                           :git/sha "2a6b330a876515c8625bac70edd44a6dc8960c6e"}
         io.github.kotoba-lang/kami-engine-motor       {:git/url "https://github.com/kotoba-lang/kami-engine-motor.git"
-                                           :sha "d49a16e7563ef230531b3b0c7f3152f5f9d2ce8c"}
+                                           :git/sha "d49a16e7563ef230531b3b0c7f3152f5f9d2ce8c"}
         ;; CAD/CAM bridge (vdesign.cad / vdesign.process): org-iso-10303
         ;; (renamed from brep) = BREP kernel + STEP I/O, org-iso-6983
         ;; (renamed from cnc) = real toolpath/G-code engine, cad =
         ;; kotoba-lang's artifact-registry/maturity-scoring layer (NOT a
         ;; geometry kernel despite the name; see vdesign.cad docstring)
         io.github.kotoba-lang/org-iso-10303 {:git/url "https://github.com/kotoba-lang/org-iso-10303.git"
-                                             :sha "36d50ebe65d07e4ba5714388c8863e7dfa98becc"}
+                                             :git/sha "36d50ebe65d07e4ba5714388c8863e7dfa98becc"}
         io.github.kotoba-lang/org-iso-6983  {:git/url "https://github.com/kotoba-lang/org-iso-6983.git"
-                                             :sha "e1998926e70c3707b2dcb751df0f1380dd86c0bc"}
+                                             :git/sha "e1998926e70c3707b2dcb751df0f1380dd86c0bc"}
         io.github.kotoba-lang/cad  {:git/url "https://github.com/kotoba-lang/cad.git"
-                                    :sha "8473733293c090e6509f6cb30a5890661d279e40"}
+                                    :git/sha "dd15140fa962d3f7276b26f8cc1fe172a3f30bca"}
         ;; Real time-stepped 2D rigid-body physics (vdesign.simphysics,
         ;; ADR-2607151600) — a genuine, tested impulse-based solver restored
         ;; 1:1 from the deleted kami-physics-2d Rust crate, NOT a new engine
         ;; written for this actor.
         io.github.kotoba-lang/physics-2d {:git/url "https://github.com/kotoba-lang/physics-2d.git"
-                                          :sha "03b6c23c8d9aa36b92a8130fd3e37fc2548b4d26"}}
+                                          :git/sha "03b6c23c8d9aa36b92a8130fd3e37fc2548b4d26"}}
  :aliases
  {;; offline workspace dev — pin transitive langchain to local checkout
   :dev {:override-deps
