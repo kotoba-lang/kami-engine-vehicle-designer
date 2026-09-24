@@ -4,7 +4,7 @@
   or vehicle constant is measured or invented here). Demands are stated
   in kg of H2 per interval and converted to kW by the EXACT identity the
   contract itself uses, so the assertions read in kg."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [vdesign.swap-schedule :as ss]
             [vdesign.powertrain :as pt]
             [vdesign.cartridge :as cart]))

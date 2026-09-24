@@ -2,7 +2,7 @@
   "size-fcev's mass-breakdown arithmetic: :tank-mass-kg is already the FULL
   tank-system mass (grav-frac = usable-H2 / tank-system-mass), so
   :store-mass-kg / :mass-kg must not add h2-kg a second time."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [vdesign.proposer :as proposer]
             [vdesign.powertrain :as pt]))
 

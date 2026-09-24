@@ -3,7 +3,7 @@
   MgH2 store participates in the SAME bounded mass spiral as the 700-bar
   tank path, refuses unprovenanced overhead loudly, and reports its
   unmeasured volume as an UNVERIFIED gate — never a silent pass."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [vdesign.proposer :as proposer]
             [vdesign.physics :as physics]
             [vdesign.powertrain :as pt]

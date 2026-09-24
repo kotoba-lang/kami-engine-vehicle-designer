@@ -1,5 +1,5 @@
 (ns vdesign.dutycycle-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [vdesign.dutycycle :as dc]))
 
 (def glider {:crr 0.010 :cd 0.30 :frontal-area 2.2})

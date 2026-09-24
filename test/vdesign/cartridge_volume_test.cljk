@@ -4,7 +4,7 @@
   test input, never a workspace constant). The packaging verdict on the
   cartridge-fed path becomes VERIFIABLE, the bed-volume identity closes
   exactly, and every invented-constant shortcut is refused loudly."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [vdesign.proposer :as proposer]
             [vdesign.cartridge-fcev :as cfc]
             [vdesign.cartridge-volume :as cv]))

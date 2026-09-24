@@ -2,7 +2,7 @@
   "vdesign.simphysics's physics_2d-backed time-stepped simulation,
   exercised against real released designs (via the real StateGraph, the
   same pattern vdesign.cad-bridge-test uses)."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [langgraph.graph :as g]
             [vdesign.design :as design]
             [vdesign.simphysics :as simphysics]))

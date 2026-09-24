@@ -3,7 +3,7 @@
   vdesign.simphysics's trajectory into kami.webgpu.mesh's real input
   shape, asserted for well-formedness (no browser/WebGPU device is
   available in this repo — see vdesign.scene's docstring)."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [langgraph.graph :as g]
             [vdesign.design :as design]
             [vdesign.simphysics :as simphysics]

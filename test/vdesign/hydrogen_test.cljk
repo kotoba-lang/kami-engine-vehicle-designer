@@ -1,5 +1,5 @@
 (ns vdesign.hydrogen-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [vdesign.hydrogen :as h]
             [vdesign.dc-bus :as dc]
             [vdesign.cartridge :as cartridge]

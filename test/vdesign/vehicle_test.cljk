@@ -1,5 +1,5 @@
 (ns vdesign.vehicle-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [kotoba.test :refer [deftest is]]
             [kotoba.physics.contract :as contract]
             [kotoba.physics.vehicle :as shared]
             [vdesign.physics :as physics]

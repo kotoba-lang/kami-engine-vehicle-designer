@@ -2,7 +2,7 @@
   "Tests for vdesign.fatigue — exact identities on synthetic fixtures
   (fixture numbers carry fixture provenance; no Mg/MgH2, PEM, vehicle,
   or material constant is measured or invented here)."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [vdesign.fatigue :as f]))
 
 (def ^:private sn-src "fixture: synthetic S-N curve for tests only")

@@ -1,5 +1,5 @@
 (ns vdesign.dc-bus-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [vdesign.dc-bus :as dc]))
 
 (defn- close? [a b] (< (Math/abs (- a b)) 1e-6))
