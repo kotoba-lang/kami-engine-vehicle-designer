@@ -3,7 +3,9 @@
             [vdesign.hydrogen :as h]
             [vdesign.dc-bus :as dc]
             [vdesign.cartridge :as cartridge]
-            [vdesign.powertrain :as pt]))
+            [vdesign.powertrain :as pt]
+            [echem.profile :as prof]
+            [echem.system :as es]))
 
 (defn- close? [a b] (< (Math/abs (- a b)) 1e-9))
 
@@ -115,3 +117,86 @@
     (is (throws? #(h/consumption-profile {:fc-profile-kw [1.0] :dt-s 1.0
                                           :fc-elec-eff 0.5
                                           :store-h2-kg -2.0})))))
+;; ---------------------------------------------------------------------
+;; consumption-from-duty-profile — composition with echem.profile
+;; (requires the echem git dep pinned past :rom-fc-profile, PR#5)
+
+(def echem-case {:bop-frac 0.15 :bop-source "fixture: synthetic screening value"})
+
+(defn- duty-profile [p-net-kw]
+  (prof/demand-profile
+   echem-case
+   {:p-net-kw p-net-kw :dt-s 10.0
+    :profile-source "fixture: synthetic constant duty cycle"}))
+
+(deftest duty-consumption-constant-profile-closed-form
+  (testing "constant net demand → per-interval H2 = ṁ·dt, upstream total reproduced"
+    (let [prof (duty-profile [80.0 80.0 80.0 80.0])
+          rate (:h2-kg-per-s (es/demand-point echem-case 80.0))
+          r    (h/consumption-from-duty-profile
+                prof {:profile-source "fixture: synthetic constant duty cycle"})]
+      (is (= 3 (count (:intervals r))))
+      (doseq [row (:intervals r)]
+        (is (close? (* rate 10.0) (:h2-kg row)))
+        (is (pos? (:eta-sys-start row)))
+        (is (pos? (:eta-sys-end row))))
+      (is (close? (:h2-kg prof) (get-in r [:h2 :total-kg])))
+      (is (get-in r [:h2 :integration-consistent]))
+      (is (pos? (get-in r [:provenance :eta-sys-min])))
+      (is (pos? (get-in r [:provenance :eta-sys-max])))
+      (is (= "fixture: synthetic constant duty cycle"
+             (get-in r [:provenance :profile-source]))))))
+
+(deftest duty-consumption-mgh2-stoichiometry-identity
+  (testing "per-interval MgH2 = H2 / w-h2(MgH2), same arithmetic as consumption-profile"
+    (let [prof (duty-profile [80.0 80.0])
+          r    (h/consumption-from-duty-profile prof {:profile-source "fixture"})
+          wh2  (:w-h2-mgh2 (:provenance (h/consumption-profile
+                                          {:fc-profile-kw [1.0] :dt-s 1.0
+                                           :fc-elec-eff 0.5})))]
+      (doseq [row (:intervals r)]
+        (is (close? (/ (:h2-kg row) wh2) (:mgh2-kg row)))))))
+
+(deftest duty-consumption-depleted-store-is-a-reported-shortfall
+  (testing "a store that runs out mid-profile is reported, never thrown"
+    (let [prof (duty-profile [80.0 80.0 80.0 80.0])
+          full (h/consumption-from-duty-profile
+                prof {:profile-source "fixture" :store-h2-kg 1.0e9})
+          tiny (h/consumption-from-duty-profile
+                prof {:profile-source "fixture"
+                      :store-h2-kg (get-in full [:intervals 0 :h2-kg])})]
+      (is (close? 0.0 (get-in full [:h2 :total-shortfall-kg])))
+      (is (pos? (get-in tiny [:h2 :total-shortfall-kg])))
+      (is (= 1 (get-in tiny [:store :depleted-at-i])))
+      (is (close? 0.0 (get-in tiny [:store :end-kg])))
+      (is (close? (get-in tiny [:store :start-kg])
+                  (+ (get-in tiny [:store :end-kg])
+                     (- (get-in tiny [:h2 :total-kg])
+                        (get-in tiny [:h2 :total-shortfall-kg]))))))))
+
+(deftest duty-consumption-refusals
+  (testing "fail closed: non-profile input, blank provenance, missing store form"
+    (is (throws? #(h/consumption-from-duty-profile
+                   {:solver :nope :points [] :dt-s 1.0 :provenance {}}
+                   {:profile-source "x"})))
+    (is (throws? #(h/consumption-from-duty-profile
+                   (duty-profile [80.0 80.0]) {:profile-source " "})))
+    (is (throws? #(h/consumption-from-duty-profile
+                   (duty-profile [80.0 80.0]) {})))
+    (is (throws? #(h/consumption-from-duty-profile
+                   (duty-profile [80.0 80.0]) {:profile-source "f" :store-h2-kg 0.0})))))
+
+(deftest duty-consumption-gaps-skip-and-refuse
+  (testing "infeasible sample: refuse by default; :allow-gaps consumes only covered intervals"
+    (let [gappy (prof/demand-profile
+                 echem-case
+                 {:p-net-kw [80.0 1.0e6 80.0 80.0] :dt-s 10.0
+                  :profile-source "fixture: synthetic gappy duty cycle"
+                  :on-infeasible :skip})]
+      (is (throws? #(h/consumption-from-duty-profile gappy {:profile-source "fixture"})))
+      (let [r (h/consumption-from-duty-profile
+               gappy {:profile-source "fixture" :allow-gaps true})]
+        (is (pos? (count (get-in r [:gaps :skipped-interval-indices]))))
+        ;; only the single covered 80→80 pair is consumed; the gap never bridges
+        (is (= 1 (count (:intervals r))))
+        (is (pos? (:infeasible-count gappy)))))))

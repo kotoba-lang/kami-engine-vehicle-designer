@@ -43,7 +43,12 @@
   `vdesign.dc-bus`'s deficit handling."
 
   (:require [vdesign.powertrain :as pt]
-            [vdesign.cartridge :as cartridge]))
+            [vdesign.cartridge :as cartridge]
+            [kotoba.lang.text :as str]
+            ;; upstream :rom-fc-profile duty-cycle contract (echem PR#5):
+            ;; the per-sample operating points consumed below. Required so the
+            ;; dependency is explicit on the vehicle plane, not incidental.
+            [echem.profile :as eprof]))
 
 (def LHV-H2-J pt/LHV-H2-J)   ; J/kg, LHV — re-export for callers composing units
 
@@ -177,3 +182,147 @@
                           :dt-s dt
                           :fc-elec-eff fc-elec-eff
                           :store-h2-kg store-h2-kg})))
+
+(defn- require-profile-result [p]
+  (when-not (and (map? p)
+                 (= :rom-fc-profile (:solver p))
+                 (sequential? (:points p))
+                 (seq (:points p))
+                 (map? (:provenance p))
+                 (number? (:dt-s p)) (pos? (:dt-s p)))
+    (throw (ex-info "expected an echem.profile/demand-profile result"
+                    {:received (select-keys p [:solver :samples :dt-s])}))))
+
+(defn- require-source-string [x]
+  (when-not (and (string? x) (not (str/blank? x)))
+    (throw (ex-info "non-blank provenance string required"
+                    {:profile-source x}))))
+
+(defn consumption-from-duty-profile
+  "Compose with the echem plane's duty-profile integration: take an
+  `echem.profile/demand-profile` result (per-sample ROM operating points
+  from the polarization curve + caller-supplied BoP group) and convert its
+  trapezoid-integrated H2 demand into the cartridge-depletion bookkeeping
+  this namespace owns (exact MgH2 stoichiometry, store tracking, shortfall).
+
+  This removes the remaining downstream block on the vehicle plane: before
+  this contract, a duty-cycle consumption claim could only be made through
+  `consumption-profile`'s scalar :fc-elec-eff — a single operating point
+  silently applied across a profile the ROM resolves per sample. Here the
+  per-sample H2 rates come from the ROM chain itself; this namespace adds
+  NO efficiency, NO H2 constant, and NO reactor behavior of its own.
+
+  Inputs:
+    profile — an echem.profile/demand-profile result (validated:
+              :solver :rom-fc-profile, feasible :points, :dt-s)
+    opts:
+      :store-h2-kg  — optional cartridge H2 capacity (kg), as in
+                      consumption-profile
+      :profile-source — required provenance echo for the duty cycle the
+                      profile was computed over (cross-checked against the
+                      profile result's own :provenance when present)
+      :allow-gaps   — default false: refuse when the profile result reports
+                      skipped/infeasible intervals (a duty cycle with gaps
+                      is not a consumption claim); with true, only covered
+                      intervals are consumed and the gap is reported.
+
+  Interval H2 demand follows the upstream trapezoid exactly:
+    m-h2(i) = dt-s · (ṁ(i) + ṁ(i+1)) / 2     over adjacent feasible samples
+  MgH2 conversion uses the same exact stoichiometric mass fraction
+  (w-h2-in-mgh2) as consumption-profile — identical arithmetic, not a copy.
+
+  Refusals: non-profile input, blank :profile-source, infeasible gaps
+  without :allow-gaps, non-positive :store-h2-kg. A depleted cartridge is a
+  reported shortfall, never an exception.
+
+  Unmeasured: everything upstream declares (transients, thermal lag,
+  purge, DC/DC part-load, trapezoid error) PLUS desorption kinetics, heat
+  of desorption, plateau pressure, min recirculation — the reactor is not
+  simulated here."
+  [profile {:keys [store-h2-kg profile-source allow-gaps]}]
+  (require-profile-result profile)
+  (require-source-string profile-source)
+  (when (and (some? store-h2-kg)
+             (not (and (number? store-h2-kg) (pos? store-h2-kg))))
+    (throw (ex-info "store-h2-kg must be a positive number (kg)"
+                    {:store-h2-kg store-h2-kg})))
+  (let [skipped (:skipped-interval-indices profile)]
+    (when (and (not allow-gaps) (seq skipped))
+      (throw (ex-info "duty profile has skipped/infeasible intervals — refusing (pass :allow-gaps true to consume covered intervals only)"
+                      {:skipped-interval-indices skipped
+                       :infeasible-count (:infeasible-count profile)}))))
+  (let [dt      (:dt-s profile)
+        skipped (:skipped-interval-indices profile)
+        wh2     (w-h2-in-mgh2)
+        pts     (:points profile)
+        step    (fn [{:keys [remaining] :as acc} [a b]]
+                  (let [h2-demand (* dt (/ (+ (:h2-kg-per-s a) (:h2-kg-per-s b)) 2.0))
+                        h2-used   (if remaining (min h2-demand remaining) h2-demand)
+                        shortfall (- h2-demand h2-used)
+                        remaining' (when remaining (- remaining h2-used))
+                        row {:i (:sample a)
+                             :i-next (:sample b)
+                             :p-net-kw-start (:p-net-kw-target a)
+                             :p-net-kw-end (:p-net-kw-target b)
+                             :eta-sys-start (:eta-sys a)
+                             :eta-sys-end (:eta-sys b)
+                             :h2-kg h2-demand
+                             :mgh2-kg (/ h2-demand wh2)
+                             :store-remaining-kg remaining'
+                             :h2-shortfall-kg shortfall}]
+                    (-> acc
+                        (update :intervals conj row)
+                        (update :h2-total + h2-demand)
+                        (update :mgh2-total + (/ h2-demand wh2))
+                        (update :shortfall + shortfall)
+                        (assoc :remaining remaining'))))
+        init   {:intervals [] :h2-total 0.0 :mgh2-total 0.0 :shortfall 0.0
+                :remaining (some-> store-h2-kg double)}
+        ;; Only ORIGINAL adjacent intervals with two feasible endpoints are
+        ;; consumed — a skipped sample never bridges a gap (same discipline
+        ;; as the upstream trapezoid over :points' :sample indices).
+        covered (filterv (fn [[a b]] (= (:sample b) (inc (:sample a))))
+                         (map vector pts (rest pts)))
+        out    (reduce step init covered)
+        rows   (:intervals out)
+        total  (:h2-total out)
+        ;; cross-check against the upstream integration's own :h2-kg
+        upstream-h2 (:h2-kg profile)
+        consistent (if (zero? upstream-h2)
+                     (zero? total)
+                     (< (Math/abs (- total upstream-h2))
+                        (* 1.0e-9 upstream-h2)))
+        depleted-at (some (fn [row]
+                            (when (pos? (:h2-shortfall-kg row))
+                              (:i row)))
+                          rows)
+        upstream-up (:unmeasured profile)]
+    (when-not consistent
+      (throw (ex-info "interval consumption does not reproduce the upstream trapezoid integral — refusing"
+                      {:h2-total-kg total :upstream-h2-kg upstream-h2})))
+    {:kind :hydrogen-duty-consumption
+     :intervals rows
+     :h2 {:total-kg total
+          :total-mgh2-kg (:mgh2-total out)
+          :total-shortfall-kg (:shortfall out)
+          :upstream-h2-kg upstream-h2
+          :integration-consistent consistent}
+     :store (when store-h2-kg
+              {:start-kg store-h2-kg
+               :end-kg (:remaining out)
+               :depleted-at-i depleted-at})
+     :gaps (when allow-gaps
+             {:skipped-interval-indices skipped
+              :infeasible-count (:infeasible-count profile)})
+     :provenance {:profile-source profile-source
+                  :upstream-profile-source (get-in profile [:provenance :profile-source])
+                  :dt-s dt
+                  :w-h2-mgh2 wh2
+                  :eta-sys-min (:eta-sys-min profile)
+                  :eta-sys-max (:eta-sys-max profile)
+                  :store-h2-kg store-h2-kg}
+     :unmeasured (merge upstream-up
+                        {:desorption-kinetics true
+                         :heat-of-desorption true
+                         :plateau-pressure true
+                         :min-h2-recirculation true})}))
