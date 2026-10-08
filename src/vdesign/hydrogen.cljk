@@ -242,6 +242,11 @@
   [profile {:keys [store-h2-kg profile-source allow-gaps]}]
   (require-profile-result profile)
   (require-source-string profile-source)
+  (let [upstream-source (get-in profile [:provenance :profile-source])]
+    (when (and (some? upstream-source) (not= upstream-source profile-source))
+      (throw (ex-info ":profile-source does not match the duty profile's own provenance — refusing (a consumption result must not be attributed to a different duty cycle)"
+                      {:profile-source profile-source
+                       :upstream-profile-source upstream-source}))))
   (when (and (some? store-h2-kg)
              (not (and (number? store-h2-kg) (pos? store-h2-kg))))
     (throw (ex-info "store-h2-kg must be a positive number (kg)"
@@ -316,6 +321,9 @@
               :infeasible-count (:infeasible-count profile)})
      :provenance {:profile-source profile-source
                   :upstream-profile-source (get-in profile [:provenance :profile-source])
+                  ;; full upstream ROM / polarization / BoP basis, so the
+                  ;; per-interval H2 rates stay reproducible from this result
+                  :upstream-provenance (:provenance profile)
                   :dt-s dt
                   :w-h2-mgh2 wh2
                   :eta-sys-min (:eta-sys-min profile)
