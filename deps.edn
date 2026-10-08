@@ -30,7 +30,7 @@
         io.github.kotoba-lang/kami-engine-crash       {:git/url "https://github.com/kotoba-lang/kami-engine-crash.git"
                                            :git/sha "fa29f4e0282c5ab00741084dc9492b5fe76e5b1a"}
         io.github.kotoba-lang/kami-engine-echem       {:git/url "https://github.com/kotoba-lang/kami-engine-echem.git"
-                                           :git/sha "2a6b330a876515c8625bac70edd44a6dc8960c6e"}
+                                           :git/sha "8b7b449ffc9f0ec19c5248e8f1026d97e7daf22f"}
         io.github.kotoba-lang/kami-engine-motor       {:git/url "https://github.com/kotoba-lang/kami-engine-motor.git"
                                            :git/sha "d49a16e7563ef230531b3b0c7f3152f5f9d2ce8c"}
         ;; CAD/CAM bridge (vdesign.cad / vdesign.process): org-iso-10303

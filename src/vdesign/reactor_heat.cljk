@@ -126,10 +126,11 @@
   [consumption {:keys [dh-j-per-kg-mgh2 dh-source heater-kw heater-source
                        label case/id]}]
   (when-not (and (map? consumption)
-                 (#{:cartridge-swap-schedule :hydrogen-consumption}
+                 (#{:cartridge-swap-schedule :hydrogen-consumption
+                    :hydrogen-duty-consumption}
                   (:kind consumption)))
     (throw (ex-info
-            "reactor-heat: expects a vdesign.swap-schedule (:cartridge-swap-schedule) or vdesign.hydrogen (:hydrogen-consumption) result"
+            "reactor-heat: expects a vdesign.swap-schedule (:cartridge-swap-schedule) or vdesign.hydrogen (:hydrogen-consumption / :hydrogen-duty-consumption) result"
             {:kind (:kind consumption)})))
   (when-not (and (finite? dh-j-per-kg-mgh2)
                  (pos? (double dh-j-per-kg-mgh2)))
