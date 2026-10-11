@@ -42,8 +42,35 @@
     - DC/DC converter losses (fc→bus, buffer→bus) are likewise
       unmeasured and not modeled.
 
-  Refusals: non-numeric/negative demand, non-positive fc-max or
-  capacity, non-positive dt, empty profile."
+  Refusals: non-numeric demand, non-positive fc-max or capacity,
+  non-positive dt, empty profile, negative demand without a caller
+  supplied :regen-kw-max (zero is legal and recovers nothing), and a negative or non-numeric :regen-kw-max.
+
+  Regen (composition with `vdesign.dutycycle/demand-profile`, which
+  emits SIGNED :demand-kw — battery-side regen charge nets negative):
+
+    a NEGATIVE demand D (D = −R, R > 0 kW) is a deceleration. The fc
+    is off. Accepted regen charge is
+
+      C-regen = min(R, :regen-kw-max, headroom-rate)
+
+    where :regen-kw-max is a caller-provenance electrical regen
+    ceiling (inverter/motor/battery charge-power limit — this contract
+    never assumes one), and headroom-rate is the power that exactly
+    fills the battery headroom in this interval. The remainder
+    R − C-regen is DISSIPATED as friction-brake heat and is REPORTED
+    per interval (:friction-brake-kw) — never silently absorbed.
+    Refusing to model regen is still possible: with no
+    :regen-kw-max and any negative demand present, the contract
+    refuses rather than absorbing the energy.
+
+  Energy identity (per profile, kWh):
+    demand-kwh = (fc-out − fc→batt charge) + batt-discharge
+                 − regen-accepted − friction-brake + deficit
+
+  Unmeasured as before: battery round-trip efficiency, DoD, DC/DC
+  losses — plus regen charge-path efficiency, covered by the same
+  :unmeasured flags."
   (:require [vdesign.powertrain :as powertrain]))
 
 (defn- require-positive-number [x k]
@@ -54,8 +81,8 @@
   (when-not (and (sequential? xs) (seq xs))
     (throw (ex-info "empty or non-sequential demand profile" {:profile xs})))
   (doseq [[i p] (map-indexed vector xs)]
-    (when-not (and (number? p) (not (neg? p)))
-      (throw (ex-info "non-physical demand" {:index i :power-kw p})))))
+    (when-not (and (number? p) (== p p))
+                    (throw (ex-info "non-numeric demand" {:index i :power-kw p})))))
 
 (defn power-split
   "Split a per-interval DC-bus electrical power demand profile (kW,
@@ -64,20 +91,28 @@
 
   Returns
     {:intervals [{:i :demand-kw :fc-kw :batt-discharge-kw :fc-charge-kw
+                  :fc-curtail-kw :regen-accepted-kw :friction-brake-kw
                   :soc-end-kwh :deficit-kw} ...]
      :energy {:demand-kwh :fc-out-kwh :batt-discharge-kwh :batt-charge-kwh
-              :fc-curtail-kwh :deficit-kwh}
+              :fc-curtail-kwh :regen-kwh :friction-brake-kwh :deficit-kwh}
      :soc {:start-kwh :min-kwh :end-kwh}
      :feasible? boolean        ; no deficit interval
      :provenance {:fc-max-kw .. :buffer-capacity-kwh .. :dt-s ..}
      :unmeasured {:battery-round-trip-eff true :battery-dod true
                   :dcdc-losses true}}"
   [{:keys [demand-profile-kw dt-s fc-max-kw buffer-capacity-kwh
-           initial-soc-kwh]}]
+           initial-soc-kwh regen-kw-max]}]
   (require-kw-list demand-profile-kw)
   (require-positive-number dt-s :dt-s)
   (require-positive-number fc-max-kw :fc-max-kw)
   (require-positive-number buffer-capacity-kwh :buffer-capacity-kwh)
+  (when (and (some? regen-kw-max)
+             (not (and (number? regen-kw-max) (not (neg? regen-kw-max)) (== regen-kw-max regen-kw-max))))
+    (throw (ex-info "non-physical :regen-kw-max"
+                    {:field :regen-kw-max :value regen-kw-max})))
+  (when (and (nil? regen-kw-max) (some neg? demand-profile-kw))
+    (throw (ex-info "negative (regen) demand present but :regen-kw-max is not supplied"
+                    {:hint "pass a caller-provenance regen electrical ceiling in kW, or pass 0.0 to refuse regen recovery"})))
   (let [soc0 (cond
                (nil? initial-soc-kwh)   buffer-capacity-kwh ; default full
                (and (number? initial-soc-kwh)
@@ -87,6 +122,33 @@
                                      {:initial-soc-kwh initial-soc-kwh
                                       :buffer-capacity-kwh buffer-capacity-kwh})))
         step (fn [{:keys [soc] :as acc} [i demand]]
+               (if (neg? demand)
+                 ;; ---- regen interval: fc off; accepted regen charge is
+                 ;; min(|demand|, regen ceiling, headroom rate); the rest
+                 ;; is friction-brake heat, reported not absorbed.
+                 (let [r             (- demand)            ; kW magnitude
+                       headroom      (- buffer-capacity-kwh soc)
+                       headroom-rate (* headroom (/ 3600.0 dt-s)) ; kW
+                       regen-acc     (min r regen-kw-max headroom-rate)
+                       friction      (- r regen-acc)
+                       soc-end       (+ soc (* regen-acc dt-s (/ 3600.0)))
+                       row {:i i
+                            :demand-kw demand
+                            :fc-kw 0.0
+                            :batt-discharge-kw 0.0
+                            :fc-charge-kw 0.0
+                            :fc-curtail-kw 0.0
+                            :regen-accepted-kw regen-acc
+                            :friction-brake-kw friction
+                            :soc-end-kwh soc-end
+                            :deficit-kw 0.0}]
+                   (-> acc
+                       (update :intervals conj row)
+                       (update :min-soc min soc-end)
+                       (update :regen-kwh + (* regen-acc dt-s (/ 3600.0)))
+                       (update :friction-kwh + (* friction dt-s (/ 3600.0)))
+                       (assoc :soc soc-end)))
+                 ;; ---- traction interval (demand >= 0), unchanged dispatch
                (let [;; fc base output serves min(demand, rating)
                      fc-base    (min demand fc-max-kw)
                      ;; battery covers what the fc cannot
@@ -113,6 +175,8 @@
                           :batt-discharge-kw batt-dis
                           :fc-charge-kw charge-kw
                           :fc-curtail-kw curtail-kw
+                          :regen-accepted-kw 0.0
+                          :friction-brake-kw 0.0
                           :soc-end-kwh soc-end
                           :deficit-kw deficit}]
                  (-> acc
@@ -122,9 +186,10 @@
                      (update :batt-dis-kwh + (* batt-dis dt-s (/ 3600.0)))
                      (update :batt-chg-kwh + (* charge-kw dt-s (/ 3600.0)))
                      (update :curtail-kwh + (* curtail-kw dt-s (/ 3600.0)))
-                     (assoc :soc soc-end))))
+                     (assoc :soc soc-end)))))
         init {:intervals [] :min-soc soc0 :soc soc0 :deficit-kwh 0.0
-              :batt-dis-kwh 0.0 :batt-chg-kwh 0.0 :curtail-kwh 0.0}
+              :batt-dis-kwh 0.0 :batt-chg-kwh 0.0 :curtail-kwh 0.0
+              :regen-kwh 0.0 :friction-kwh 0.0}
         out  (reduce step init (map-indexed vector demand-profile-kw))
         rows (:intervals out)
         demand-kwh (reduce + (map #(* % dt-s (/ 3600.0)) demand-profile-kw))
@@ -135,6 +200,8 @@
               :batt-discharge-kwh (:batt-dis-kwh out)
               :batt-charge-kwh (:batt-chg-kwh out)
               :fc-curtail-kwh (:curtail-kwh out)
+              :regen-kwh (:regen-kwh out)
+              :friction-brake-kwh (:friction-kwh out)
               :deficit-kwh (:deficit-kwh out)}
      :soc {:start-kwh soc0
            :min-kwh (:min-soc out)
@@ -143,7 +210,8 @@
      :provenance {:fc-max-kw fc-max-kw
                   :buffer-capacity-kwh buffer-capacity-kwh
                   :dt-s dt-s
-                  :initial-soc-kwh initial-soc-kwh}
+                  :initial-soc-kwh initial-soc-kwh
+                  :regen-kw-max regen-kw-max}
      :unmeasured {:battery-round-trip-eff true
                   :battery-dod true
                   :dcdc-losses true}}))
@@ -157,7 +225,8 @@
   silently flow into a hydrogen powertrain contract — the same boundary
   discipline `vdesign.cartridge/size-for-fcev-store` applies on the
   storage side. The source result is echoed into `:provenance`."
-  [powertrain-result {:keys [demand-profile-kw dt-s initial-soc-kwh]}]
+  [powertrain-result {:keys [demand-profile-kw dt-s initial-soc-kwh
+                             regen-kw-max]}]
   (when-not (= :fcev (:kind powertrain-result))
     (throw (ex-info "not a FCEV powertrain result"
                     {:kind (:kind powertrain-result)})))
@@ -170,7 +239,8 @@
                          :dt-s dt-s
                          :fc-max-kw p-peak
                          :buffer-capacity-kwh buffer-cap
-                         :initial-soc-kwh initial-soc-kwh})
+                         :initial-soc-kwh initial-soc-kwh
+                         :regen-kw-max regen-kw-max})
            :source {:powertrain-result-kind :fcev
                     :p-peak-kW p-peak
                     :buffer-capacity-source "vdesign.powertrain/tech :fcev :buffer-kWh"})))

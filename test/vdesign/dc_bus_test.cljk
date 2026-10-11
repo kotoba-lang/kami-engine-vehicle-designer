@@ -1,6 +1,7 @@
 (ns vdesign.dc-bus-test
   (:require [kotoba.test :refer [deftest is testing]]
-            [vdesign.dc-bus :as dc]))
+            [vdesign.dc-bus :as dc]
+            [vdesign.dutycycle :as dutycycle]))
 
 (defn- close? [a b] (< (Math/abs (- a b)) 1e-6))
 
@@ -140,3 +141,91 @@
                              :fc-max-kw 10.0 :buffer-capacity-kwh 1.5})]
       (is (= {:battery-round-trip-eff true :battery-dod true :dcdc-losses true}
              (:unmeasured r))))))
+
+;; ---- regen (signed demand) contracts --------------------------------------
+
+(deftest regen-accepted-capped-by-regen-kw-max
+  (testing "negative demand: fc off, regen capped by :regen-kw-max, rest is friction heat"
+    (let [r (dc/power-split {:demand-profile-kw [-4.0 5.0] :dt-s 1.0
+                             :fc-max-kw 5.0 :buffer-capacity-kwh 1.5
+                             :initial-soc-kwh 1.4 :regen-kw-max 2.0})
+          i0 (first (:intervals r))]
+      ;; fc off on a regen interval
+      (is (close? 0.0 (:fc-kw i0)))
+      (is (close? 2.0 (:regen-accepted-kw i0)))
+      (is (close? 2.0 (:friction-brake-kw i0)))
+      ;; energy bookkeeping: |D| = regen + friction
+      (is (close? (/ 2.0 3600.0) (:regen-kwh (:energy r))))
+      (is (close? (/ 2.0 3600.0) (:friction-brake-kwh (:energy r))))
+      ;; general identity over the mixed profile
+      (let [{:keys [demand-kwh fc-out-kwh batt-discharge-kwh batt-charge-kwh
+                    regen-kwh friction-brake-kwh deficit-kwh]} (:energy r)]
+        (is (close? demand-kwh
+                    (+ (- fc-out-kwh batt-charge-kwh) batt-discharge-kwh
+                       (- regen-kwh) (- friction-brake-kwh) deficit-kwh))))
+      ;; SoC rose by accepted regen energy
+      (is (close? (+ 1.4 (/ 2.0 3600.0)) (get-in r [:soc :end-kwh])))
+      (is (:feasible? r)))))
+
+(deftest regen-capped-by-battery-headroom
+  (testing "full battery: no regen accepted, everything is reported friction heat"
+    (let [r (dc/power-split {:demand-profile-kw [-3.0] :dt-s 1.0
+                             :fc-max-kw 20.0 :buffer-capacity-kwh 1.5
+                             :regen-kw-max 10.0})
+          i0 (first (:intervals r))]
+      (is (close? 0.0 (:regen-accepted-kw i0)))
+      (is (close? 3.0 (:friction-brake-kw i0)))
+      (is (close? (/ 3.0 3600.0) (:friction-brake-kwh (:energy r)))))))
+
+(deftest non-negative-profile-unchanged-by-regen-mode
+  (testing "an all-nonnegative profile gives identical results with and without :regen-kw-max"
+    (let [profile [10.0 30.0 5.0 0.0]
+          base (dc/power-split {:demand-profile-kw profile :dt-s 1.0
+                                :fc-max-kw 20.0 :buffer-capacity-kwh 1.5})
+          with-regen (dc/power-split {:demand-profile-kw profile :dt-s 1.0
+                                      :fc-max-kw 20.0 :buffer-capacity-kwh 1.5
+                                      :regen-kw-max 8.0})]
+      (is (close? 0.0 (:regen-kwh (:energy with-regen))))
+      (is (close? 0.0 (:friction-brake-kwh (:energy with-regen))))
+      (is (every? (fn [[k v]] (close? v (get (:energy with-regen) k))) (:energy base)))
+      (is (= (:soc base) (:soc with-regen)))
+      (is (every? #(and (close? 0.0 (:regen-accepted-kw %))
+                        (close? 0.0 (:friction-brake-kw %)))
+                  (:intervals with-regen))))))
+
+(deftest regen-refusals
+  (testing "negative demand without :regen-kw-max refuses (energy never silently absorbed)"
+    (is (throws? #(dc/power-split {:demand-profile-kw [-1.0] :dt-s 1.0
+                                   :fc-max-kw 20.0 :buffer-capacity-kwh 1.5}))))
+  (testing "zero ceiling is legal and recovers nothing"
+    (let [r (dc/power-split {:demand-profile-kw [-1.0] :dt-s 1.0
+                             :fc-max-kw 20.0 :buffer-capacity-kwh 1.5
+                             :regen-kw-max 0.0})]
+      (is (close? (/ 1.0 3600.0) (:friction-brake-kwh (:energy r))))
+      (is (close? 0.0 (:regen-kwh (:energy r))))))
+  (testing "non-physical :regen-kw-max refuses"
+    (is (throws? #(dc/power-split {:demand-profile-kw [1.0] :dt-s 1.0
+                                   :fc-max-kw 20.0 :buffer-capacity-kwh 1.5
+                                   :regen-kw-max -2.0})))
+    (is (throws? #(dc/power-split {:demand-profile-kw [1.0] :dt-s 1.0
+                                   :fc-max-kw 20.0 :buffer-capacity-kwh 1.5
+                                   :regen-kw-max "60"})))))
+
+(deftest dutycycle-composition-feeds-regen-to-dc-bus
+  (testing "the landed dutycycle → dc-bus chain composes over a decel segment"
+    (let [cycle {:speeds-mps [20.0 20.0 10.0 10.0] :dt-s 1.0}
+          d (dutycycle/demand-profile cycle {:crr 0.01 :cd 0.30 :frontal-area 2.2}
+                                      1500.0
+                                      {:b2w-eff 0.88 :regen-frac 0.6 :aux-w 500.0})
+          r (dc/power-split {:demand-profile-kw (:demand-kw d) :dt-s 1.0
+                             :fc-max-kw 60.0 :buffer-capacity-kwh 1.5
+                             :regen-kw-max 40.0
+                             :initial-soc-kwh 0.5})]
+      ;; the decel segment really produced negative demand upstream
+      (is (some neg? (:demand-kw d)))
+      ;; and the bus contract consumed it as charge, not refusal
+      (is (pos? (:regen-kwh (:energy r))))
+      (is (some #(pos? (:regen-accepted-kw %)) (:intervals r)))
+      (is (:feasible? r))
+      ;; provenance: the regen ceiling is caller-provenance and echoed
+      (is (close? 40.0 (get-in r [:provenance :regen-kw-max]))))))
