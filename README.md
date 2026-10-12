@@ -4,7 +4,7 @@ A **clean-sheet vehicle design** actor — given requirements (class, range,
 payload, top speed) it designs a car *from zero* and sizes its energy
 system for **either a battery-electric (BEV) or a hydrogen fuel-cell
 (FCEV)** powertrain. Built on this workspace's
-[`langgraph-clj`](https://github.com/com-junkawasaki/langgraph-clj)
+[`langgraph-clj`](https://github.com/kotoba-lang/langgraph)
 StateGraph runtime (portable `.cljc`, supervised superstep loop,
 interrupts, Datomic/in-mem checkpoints) — the same runtime the
 [`robotaxi-actor`](../robotaxi-actor) rides on.
