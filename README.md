@@ -7,7 +7,7 @@ system for **either a battery-electric (BEV) or a hydrogen fuel-cell
 [`langgraph-clj`](https://github.com/com-junkawasaki/langgraph-clj)
 StateGraph runtime (portable `.cljc`, supervised superstep loop,
 interrupts, Datomic/in-mem checkpoints) — the same runtime the
-[`robotaxi-actor`](../robotaxi-actor) rides on.
+`robotaxi-actor` rides on.
 
 > **Why an actor layer at all?** A generative design proposer (LLM /
 > CAD agent) is a brilliant *concept generator* but it does **not respect
@@ -91,7 +91,7 @@ out of identical requirements as physically distinct vehicles.
 | `src/vdesign/simverify.cljk` | **(a) SimGovernor** — structural · clash · axle on the Isaac/genesis-compat surface + per-env DR |
 | `src/vdesign/process.cljk` | **(b) ProcessPlanner** — BOM → CAM (G-code) → 4D assembly order |
 | `src/vdesign/datom.cljk` | kotoba Datom-log (EAVT) representation — verification + mfg as facts |
-| `src/vdesign/design.cljk` | **VehicleDesignActor** — the langgraph-clj StateGraph (1 run = 1 design pass) |
+| `src/vdesign/design.cljk` | **VehicleDesignActor** — the `langgraph` StateGraph (1 run = 1 design pass) |
 | `src/vdesign/sim.cljk` | demo driver |
 | `src/vdesign/simphysics.cljk` | **real time-stepped physics** — `physics-2d`-backed frontal-crash rigid-body simulation |
 | `src/vdesign/scene.cljk` | bridges tessellated geometry + the physics trajectory into `kami.webgpu.mesh`'s real input shape |
@@ -105,8 +105,11 @@ the workspace's simulation and manufacturing fabric:
 
 - **(a) `simverify` → Isaac / Cosmos sim.** The released spec is verified
   for crash-load paths, package clash and axle loading against the
-  **kami-genesis** (`isaacsim.core.api`) / **kami-cae** surface, then
-  hardened with **kami-shugyo-style per-env domain randomization** (mass
+  [**com-nvidia-isaac-sim**](https://github.com/kotoba-lang/com-nvidia-isaac-sim)
+  (`isaacsim.core.api`, formerly kami-genesis) /
+  [**fea**](https://github.com/kotoba-lang/fea) (formerly kami-cae) surface, then
+  hardened with **[com-nvidia-isaac-lab](https://github.com/kotoba-lang/com-nvidia-isaac-lab)-style
+  (formerly kami-shugyo) per-env domain randomization** (mass
   ±8 %, structure ±6 %, crash pulse ±10 %) for a sim-to-real margin — the
   same clean-room Isaac-compat stack kami-engine matured in ADR-0034. A
   structural failure downgrades even a physics-closed design to *rejected*
